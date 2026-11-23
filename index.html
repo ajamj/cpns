@@ -11,7 +11,11 @@
     <title>CPNS BMKG SKB Prep</title>
   </head>
   <body>
-    <div id="app"></div>
+    <!-- First focusable element: keyboard users can jump straight to the view. -->
+    <a class="skip-link" href="#main-content">Lewati ke konten utama</a>
+    <div id="app">
+      <main id="main-content" tabindex="-1"></main>
+    </div>
     <script type="module" src="/src/app.ts"></script>
   </body>
 </html>

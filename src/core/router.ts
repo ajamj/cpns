@@ -1,5 +1,6 @@
 // Hash-based router for SPA
 import type { RouteParams } from '../shared/types';
+import { eventBus } from './events';
 
 export type ViewName = 
   | 'dashboard'
@@ -35,7 +36,23 @@ const routeMap: Record<string, ViewName> = {
   'trash': 'trash',
 };
 
+const APP_TITLE = 'CPNS BMKG SKB Prep';
+
+const VIEW_TITLES: Record<ViewName, string> = {
+  dashboard: 'Dasbor',
+  'question-bank': 'Bank Soal',
+  practice: 'Latihan',
+  'mock-exam': 'Ujian Mock CAT',
+  flashcards: 'Kartu Hafalan',
+  analytics: 'Analitik',
+  settings: 'Pengaturan',
+  import: 'Impor',
+  export: 'Ekspor',
+  trash: 'Tempat Sampah',
+};
+
 let currentRoute: Route = { view: 'dashboard', params: {}, rawHash: '' };
+let isFirstPaint = true;
 const handlers: Set<RouteHandler> = new Set();
 
 export function parseHash(hash: string = window.location.hash.slice(1)): Route {
@@ -82,20 +99,56 @@ export function onRouteChange(handler: RouteHandler): () => void {
   return () => handlers.delete(handler);
 }
 
+/**
+ * A running mock exam owns the focus (including its timer live region).
+ * Never pull focus back to the page container while the exam is in progress.
+ */
+function examOwnsFocus(route: Route): boolean {
+  if (route.view !== 'mock-exam') return false;
+  const mount = document.querySelector('.mock-exam-view');
+  return (
+    mount?.getAttribute('data-exam-active') === 'true' ||
+    (Boolean(document.fullscreenElement) && document.contains(mount))
+  );
+}
+
+/** Publish route metadata once the view has been rendered. */
+function announceRoute(route: Route): void {
+  document.title = `${VIEW_TITLES[route.view] ?? VIEW_TITLES.dashboard} — ${APP_TITLE}`;
+
+  const firstPaint = isFirstPaint;
+  isFirstPaint = false;
+  eventBus.emit('route:changed', {
+    view: route.view,
+    params: { ...route.params },
+    rawHash: route.rawHash,
+    isFirstPaint: firstPaint,
+  });
+
+  if (firstPaint || examOwnsFocus(route)) return;
+  document.getElementById('main-content')?.focus({ preventScroll: true });
+}
+
+function notifyHandlers(route: Route): void {
+  handlers.forEach(h => h(route));
+  announceRoute(route);
+}
+
 function handleHashChange(): void {
   const newRoute = parseHash();
   if (newRoute.rawHash !== currentRoute.rawHash) {
     currentRoute = newRoute;
-    handlers.forEach(h => h(newRoute));
+    notifyHandlers(newRoute);
   }
 }
 
 // Initialize
 export function initRouter(): void {
   window.addEventListener('hashchange', handleHashChange);
-  // Handle initial load
+  // Handle initial load. announceRoute runs once here so the very first paint
+  // sets the document title without moving focus away from the page.
   currentRoute = parseHash();
-  handlers.forEach(h => h(currentRoute));
+  notifyHandlers(currentRoute);
 }
 
 export function destroyRouter(): void {

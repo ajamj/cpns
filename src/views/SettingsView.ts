@@ -70,17 +70,17 @@ export class SettingsView {
         <p class="page-subtitle">Kelola preferensi aplikasi, default ujian, parameter flashcard, dan data</p>
       </div>
 
-      <div class="tabs" role="tablist">
-        <button class="tab active" data-tab="general" role="tab">${t('settings.general')}</button>
-        <button class="tab" data-tab="mockExam" role="tab">${t('settings.mockExam')}</button>
-        <button class="tab" data-tab="flashcards" role="tab">${t('settings.flashcards')}</button>
-        <button class="tab" data-tab="data" role="tab">${t('settings.data')}</button>
-        <button class="tab" data-tab="accessibility" role="tab">${t('settings.accessibility')}</button>
-        <button class="tab" data-tab="about" role="tab">${t('settings.about')}</button>
+      <div class="tabs" role="tablist" aria-label="${t('settings.title')}">
+        <button type="button" class="tab active" id="tab-general" data-tab="general" role="tab" aria-controls="panel-general" aria-selected="true">${t('settings.general')}</button>
+        <button type="button" class="tab" id="tab-mockExam" data-tab="mockExam" role="tab" aria-controls="panel-mockExam" aria-selected="false">${t('settings.mockExam')}</button>
+        <button type="button" class="tab" id="tab-flashcards" data-tab="flashcards" role="tab" aria-controls="panel-flashcards" aria-selected="false">${t('settings.flashcards')}</button>
+        <button type="button" class="tab" id="tab-data" data-tab="data" role="tab" aria-controls="panel-data" aria-selected="false">${t('settings.data')}</button>
+        <button type="button" class="tab" id="tab-accessibility" data-tab="accessibility" role="tab" aria-controls="panel-accessibility" aria-selected="false">${t('settings.accessibility')}</button>
+        <button type="button" class="tab" id="tab-about" data-tab="about" role="tab" aria-controls="panel-about" aria-selected="false">${t('settings.about')}</button>
       </div>
 
       <!-- General Tab -->
-      <div class="tab-panel" data-tab-panel="general" style="display:block;">
+      <div class="tab-panel" id="panel-general" role="tabpanel" aria-labelledby="tab-general" data-tab-panel="general" style="display:block;">
         <div class="card">
           <div class="card-content" style="display:flex;flex-direction:column;gap:var(--space-6);max-width:600px;">
             <fieldset>
@@ -132,7 +132,7 @@ export class SettingsView {
         </div>
 
       <!-- Mock Exam Tab -->
-      <div class="tab-panel" data-tab-panel="mockExam" style="display:none;">
+      <div class="tab-panel" id="panel-mockExam" role="tabpanel" aria-labelledby="tab-mockExam" data-tab-panel="mockExam" style="display:none;">
         <div class="card">
           <div class="card-content" style="display:flex;flex-direction:column;gap:var(--space-6);max-width:600px;">
             <fieldset>
@@ -165,7 +165,7 @@ export class SettingsView {
         </div>
 
       <!-- Flashcards Tab -->
-      <div class="tab-panel" data-tab-panel="flashcards" style="display:none;">
+      <div class="tab-panel" id="panel-flashcards" role="tabpanel" aria-labelledby="tab-flashcards" data-tab-panel="flashcards" style="display:none;">
         <div class="card">
           <div class="card-content" style="display:flex;flex-direction:column;gap:var(--space-6);max-width:600px;">
             <fieldset>
@@ -205,7 +205,7 @@ export class SettingsView {
         </div>
 
       <!-- Data Tab -->
-      <div class="tab-panel" data-tab-panel="data" style="display:none;">
+      <div class="tab-panel" id="panel-data" role="tabpanel" aria-labelledby="tab-data" data-tab-panel="data" style="display:none;">
         <div class="card">
           <div class="card-content" style="display:flex;flex-direction:column;gap:var(--space-6);max-width:600px;">
             <fieldset>
@@ -247,7 +247,7 @@ export class SettingsView {
         </div>
 
       <!-- Accessibility Tab -->
-      <div class="tab-panel" data-tab-panel="accessibility" style="display:none;">
+      <div class="tab-panel" id="panel-accessibility" role="tabpanel" aria-labelledby="tab-accessibility" data-tab-panel="accessibility" style="display:none;">
         <div class="card">
           <div class="card-content" style="display:flex;flex-direction:column;gap:var(--space-6);max-width:600px;">
             <fieldset>
@@ -269,7 +269,7 @@ export class SettingsView {
         </div>
 
       <!-- About Tab -->
-      <div class="tab-panel" data-tab-panel="about" style="display:none;">
+      <div class="tab-panel" id="panel-about" role="tabpanel" aria-labelledby="tab-about" data-tab-panel="about" style="display:none;">
         <div class="card">
           <div class="card-content" style="max-width:600px;">
             <div style="text-align:center;padding:var(--space-8);">
@@ -284,7 +284,7 @@ export class SettingsView {
             </div>
             <hr style="margin:var(--space-6) 0;border-color:var(--color-border);">
             <div style="font-size:var(--text-sm);color:var(--color-text-muted);">
-              <p><strong>Kisi-Kisi:</b> BMKG Pengumuman No. B/KP.01.00/016/SU/XI/2024 Lampiran I</p>
+              <p><strong>Kisi-Kisi:</strong> BMKG Pengumuman No. B/KP.01.00/016/SU/XI/2024 Lampiran I</p>
               <p><strong>21 Topik:</b> 9 Kemampuan Umum + 12 Kemampuan Khusus</p>
               <p><strong>Teknologi:</b> Vanilla TypeScript, Vite, Dexie.js, Workbox, Chart.js</p>
               <p><strong>Lisensi:</b> MIT</p>
@@ -302,9 +302,13 @@ export class SettingsView {
     this.element.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.tab;
-        this.element?.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        this.element?.querySelectorAll('.tab').forEach(t => {
+          t.classList.remove('active');
+          t.setAttribute('aria-selected', 'false');
+        });
         this.element?.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
         tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
         const panel = this.element?.querySelector(`.tab-panel[data-tab-panel="${tabName}"]`);
         if (panel) panel.style.display = 'block';
       });

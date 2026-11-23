@@ -62,7 +62,7 @@ export class ImportView {
     
     return `
       <div id="conflictsList" style="margin-bottom:var(--space-4);padding:var(--space-4);background:var(--color-warning-light);border:1px solid var(--color-warning);border-radius:var(--radius-md);">
-        <h4 style="margin-bottom:var(--space-2);color:var(--color-warning);">⚠ ${this.conflicts.length} Konflik Terdeteksi</h4>
+        <h3 style="font-size:var(--text-base);margin-bottom:var(--space-2);color:var(--color-warning);">⚠ ${this.conflicts.length} Konflik Terdeteksi</h3>
         <div id="conflictsItems" style="max-height:200px;overflow:auto;">
           ${this.conflicts.map((c, i) => `
             <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3);margin-bottom:var(--space-2);">
@@ -92,7 +92,7 @@ export class ImportView {
     const rows = this.previewData.slice(0, 50).map(q => `
       <tr>
         <td style="font-family:monospace;font-size:var(--text-xs);">${q.id.substring(0,8)}...</td>
-        <td><span class="badge" style="background:${this.getSubdomainColor(q.topicCode)}20;color:${this.getSubdomainColor(q.topicCode)};">${q.topicCode}</span></td>
+        <td><span class="badge badge-topic" style="--badge-topic-color:${this.getSubdomainColor(q.topicCode)};">${q.topicCode}</span></td>
         <td style="max-width:300px;">${q.stem.substring(0,80)}...</td>
         <td><span class="badge badge-difficulty-${q.difficulty}">${q.difficulty}</span></td>
         <td>${q.source || '-'}</td>
@@ -148,14 +148,14 @@ export class ImportView {
               <polyline points="17 8 12 3 7 8"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            <h3 style="font-size:var(--text-lg);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">${t('import.dragDrop')}</h3>
+            <h2 style="font-size:var(--text-lg);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">${t('import.dragDrop')}</h2>
             <p style="color:var(--color-text-muted);margin-bottom:var(--space-4);">Atau klik untuk memilih file JSON/CSV</p>
             <button class="btn btn-secondary" id="btnSelectFile">${t('common.import')}</button>
           </div>
 
           <!-- Format Info -->
           <div style="margin-top:var(--space-6);padding:var(--space-4);background:var(--color-bg);border-radius:var(--radius-md);">
-            <h4 style="font-weight:var(--font-semibold);margin-bottom:var(--space-2);">Format yang Didukung</h4>
+            <h3 style="font-size:var(--text-base);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">Format yang Didukung</h3>
             <ul style="font-size:var(--text-sm);color:var(--color-text-muted);line-height:var(--leading-relaxed);">
               <li><strong>JSON:</strong> Full fidelity backup (soal + progress + flashcard + pengaturan)</li>
               <li><strong>CSV:</strong> Spreadsheet format (hanya soal, kolom: id,topicCode,stem,optionA-E,correctAnswer,explanation,difficulty,source,tags)</li>
@@ -177,7 +177,7 @@ export class ImportView {
           <div id="previewArea" style="display:none;margin-top:var(--space-6);">
             <div class="card">
               <div class="card-header">
-                <h3 class="card-title">${t('import.preview')}</h3>
+                <h2 class="card-title">${t('import.preview')}</h2>
                 <span class="badge" id="previewCount">0 soal</span>
               </div>
               <div class="card-content" style="max-height:400px;overflow:auto;">
@@ -387,8 +387,8 @@ export class ImportView {
   }
 
   private getSubdomainColor(code: string): string {
-    if (code.startsWith('UM-')) return '#3b82f6';
-    if (code.startsWith('KH-')) return '#10b981';
-    return '#64748b';
+    if (code.startsWith('UM-')) return 'var(--subdomain-meteorology)';
+    if (code.startsWith('KH-')) return 'var(--subdomain-climatology)';
+    return 'var(--subdomain-default)';
   }
 }

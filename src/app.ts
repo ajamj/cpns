@@ -8,6 +8,7 @@ import { loadKisiKisi } from './features/kisi-kisi/registry';
 import { eventBus } from './core/events';
 import { APP_CONFIG } from './core/config';
 import { setShowToast } from './core/app-utils';
+import { initModalFocusManagement, restoreFocus } from './core/modal';
 import {
   initPwaLifecycle,
   checkStorageBudget,
@@ -133,18 +134,20 @@ async function initApp(): Promise<void> {
   // Keyboard shortcuts
   document.addEventListener('keydown', handleGlobalKeys);
   
-  // Start route listener
+  // Watch view-created dialogs for focus trapping.
+  initModalFocusManagement();
+
+  // Start route listener (onRouteChange also renders the initial route).
   onRouteChange(renderRoute);
-  
-  // Initial render
-  renderRoute(getCurrentRoute());
   
   console.log(`${APP_CONFIG.name} v${APP_CONFIG.version} initialized`);
 }
 
 // Render route
 function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
-  const app = document.getElementById('app');
+  // The router outlet is the <main> landmark so skip links and screen readers
+  // land directly on the view content.
+  const app = document.getElementById('main-content') ?? document.getElementById('app');
   if (!app) return;
   
   // Clean up previous view
@@ -205,10 +208,13 @@ function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
 
 // Navigation
 function updateActiveNav(activeView: string): void {
-  document.querySelectorAll('.nav-tab').forEach(tab => {
+  document.querySelectorAll<HTMLElement>('.nav-tab').forEach(tab => {
     const href = tab.getAttribute('href');
-    const view = href?.replace('#', '') || '';
-    tab.classList.toggle('active', view === activeView);
+    const view = href?.replace(/^#\/?/, '') || '';
+    const isActive = view === activeView;
+    tab.classList.toggle('active', isActive);
+    if (isActive) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
   });
 }
 
@@ -260,6 +266,9 @@ function getOrCreateToastContainer(): HTMLElement {
     container = document.createElement('div');
     container.id = 'toast-container';
     container.className = 'toast-container';
+    container.setAttribute('role', 'status');
+    container.setAttribute('aria-live', 'polite');
+    container.setAttribute('aria-atomic', 'false');
     document.body.appendChild(container);
   }
   return container;
@@ -289,10 +298,11 @@ async function handleInstallClick(): Promise<void> {
   hideInstallButton();
 }
 
-// Close all modals
+// Close all modals and hand focus back to their trigger
 function closeAllModals(): void {
   document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
   document.body.style.overflow = '';
+  restoreFocus();
 }
 
 // Export for debugging

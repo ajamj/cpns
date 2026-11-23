@@ -9,6 +9,7 @@ import type {
   KisiKisiTopic,
   BackupMeta,
   ExportData,
+  RouteParams,
 } from '../shared/types';
 
 export type AppEvents = {
@@ -33,6 +34,12 @@ export type AppEvents = {
   'pwa:installed': void;
   'offline:status': boolean;
   'pwa:storageWarning': { usage: number; quota: number };
+  'route:changed': {
+    view: string;
+    params: RouteParams;
+    rawHash: string;
+    isFirstPaint: boolean;
+  };
 };
 
 const eventBus = mitt<AppEvents>();

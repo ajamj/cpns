@@ -100,7 +100,7 @@ export class TrashView {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64" style="margin-bottom:var(--space-4);opacity:0.5;">
               <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
             </svg>
-            <h3 style="font-size:var(--text-xl);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">Sampah Kosong</h3>
+            <h2 style="font-size:var(--text-xl);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">Sampah Kosong</h2>
             <p style="color:var(--color-text-muted);">Tidak ada soal yang dihapus.</p>
           </div>
         </div>
@@ -128,7 +128,7 @@ export class TrashView {
                   return `
                     <tr data-id="${q.id}" ${this.selectedIds.has(q.id) ? 'class="selected"' : ''} ${willPurge ? 'style="background:var(--color-danger-light);"' : ''}>
                       <td><input type="checkbox" class="form-check-input row-checkbox" value="${q.id}" ${this.selectedIds.has(q.id) ? 'checked' : ''}></td>
-                      <td><span class="badge" style="background:${this.getSubdomainColor(q.topicCode)}20;color:${this.getSubdomainColor(q.topicCode)};">${q.topicCode}</span></td>
+                      <td><span class="badge badge-topic" style="--badge-topic-color:${this.getSubdomainColor(q.topicCode)};">${q.topicCode}</span></td>
                       <td style="max-width:400px;">${q.stem.substring(0, 100)}...</td>
                       <td>${new Date(q.deletedAt!).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                       <td>
@@ -247,8 +247,8 @@ export class TrashView {
   }
 
   private getSubdomainColor(code: string): string {
-    if (code.startsWith('UM-')) return '#3b82f6';
-    if (code.startsWith('KH-')) return '#10b981';
-    return '#64748b';
+    if (code.startsWith('UM-')) return 'var(--subdomain-meteorology)';
+    if (code.startsWith('KH-')) return 'var(--subdomain-climatology)';
+    return 'var(--subdomain-default)';
   }
 }

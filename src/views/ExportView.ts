@@ -35,7 +35,7 @@ export class ExportView {
         <!-- Full Backup -->
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">${t('export.json')}</h3>
+            <h2 class="card-title">${t('export.json')}</h2>
           </div>
           <div class="card-content">
             <p style="color:var(--color-text-muted);margin-bottom:var(--space-4);">Backup lengkap: soal, progress, flashcard, pengaturan, kisi-kisi</p>
@@ -52,7 +52,7 @@ export class ExportView {
         <!-- Questions Export -->
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">${t('export.csv')} / ${t('export.anki')}</h3>
+            <h2 class="card-title">${t('export.csv')} / ${t('export.anki')}</h2>
           </div>
           <div class="card-content">
             <div class="form-group">
@@ -72,7 +72,7 @@ export class ExportView {
             </div>
 
             <div id="filterSection" style="display:none;margin-top:var(--space-4);padding:var(--space-4);background:var(--color-bg);border-radius:var(--radius-md);">
-              <h4 style="margin-bottom:var(--space-3);">Filter Ekspor</h4>
+              <h3 style="font-size:var(--text-base);margin-bottom:var(--space-3);">Filter Ekspor</h3>
               <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;">
                 <select id="exportTopicFilter" class="form-select" style="min-width:200px;">
                   <option value="">${t('filter.all')}</option>
@@ -100,14 +100,14 @@ export class ExportView {
         <!-- Sessions/Analytics Export -->
         <div class="card" style="grid-column:1/-1;">
           <div class="card-header">
-            <h3 class="card-title">Ekspor Data Lainnya</h3>
+            <h2 class="card-title">Ekspor Data Lainnya</h2>
           </div>
           <div class="card-content">
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:var(--space-4);">
               <div class="card" style="border:1px solid var(--color-border);">
                 <div class="card-content" style="padding:var(--space-4);text-align:center;">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="1.5" style="margin-bottom:var(--space-2);"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                  <h4 style="margin-bottom:var(--space-1);">Sesi Latihan/Ujian</h4>
+                  <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-1);">Sesi Latihan/Ujian</h3>
                   <p style="font-size:var(--text-sm);color:var(--color-text-muted);margin-bottom:var(--space-3);">Ekspor semua sesi practice dan mock exam ke CSV</p>
                   <button class="btn btn-secondary" id="btnExportSessions" style="width:100%;">Ekspor CSV</button>
                 </div>
@@ -115,7 +115,7 @@ export class ExportView {
               <div class="card" style="border:1px solid var(--color-border);">
                 <div class="card-content" style="padding:var(--space-4);text-align:center;">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" stroke-width="1.5" style="margin-bottom:var(--space-2);"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h12M6 12h12M6 16h8"/></svg>
-                  <h4 style="margin-bottom:var(--space-1);">Flashcard</h4>
+                  <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-1);">Flashcard</h3>
                   <p style="font-size:var(--text-sm);color:var(--color-text-muted);margin-bottom:var(--space-3);">Ekspor kartu belajar ke CSV/Anki</p>
                   <button class="btn btn-secondary" id="btnExportFlashcards" style="width:100%;">Ekspor CSV</button>
                 </div>
@@ -123,7 +123,7 @@ export class ExportView {
               <div class="card" style="border:1px solid var(--color-border);">
                 <div class="card-content" style="padding:var(--space-4);text-align:center;">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-info)" stroke-width="1.5" style="margin-bottom:var(--space-2);"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-                  <h4 style="margin-bottom:var(--space-1);">Laporan Mingguan</h4>
+                  <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-1);">Laporan Mingguan</h3>
                   <p style="font-size:var(--text-sm);color:var(--color-text-muted);margin-bottom:var(--space-3);">Generate laporan progress mingguan (Markdown/HTML)</p>
                   <button class="btn btn-secondary" id="btnExportReport" style="width:100%;">Generate</button>
                 </div>

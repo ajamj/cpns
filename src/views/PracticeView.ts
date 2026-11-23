@@ -197,7 +197,7 @@ export class PracticeView {
               return `
                 <button type="button" class="${optionClass}" data-option="${i}" ${isAnswered ? 'disabled' : ''} style="
                   display:flex;align-items:flex-start;gap:var(--space-3);
-                  padding:var(--space-4);border:2px solid var(--color-border);
+                  min-height:44px;padding:var(--space-4);border:2px solid var(--color-border-strong);
                   border-radius:var(--radius-lg);background:var(--color-bg-elevated);
                   text-align:left;cursor:${isAnswered ? 'not-allowed' : 'pointer'};
                   transition:all var(--transition-fast);
@@ -205,7 +205,7 @@ export class PracticeView {
                   ${showResult && isSelected && !isCorrect ? 'border-color:var(--color-danger);background:var(--color-danger-light);' : ''}
                   ${isSelected && !showResult ? 'border-color:var(--color-primary);background:var(--color-primary-light);' : ''}
                 ">
-                  <span style="width:28px;height:28px;border:2px solid var(--color-border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:var(--font-bold);flex-shrink:0;${isSelected ? 'background:var(--color-primary);border-color:var(--color-primary);color:white;' : ''}">${String.fromCharCode(65 + i)}</span>
+                  <span style="width:28px;height:28px;border:2px solid var(--color-border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:var(--font-bold);flex-shrink:0;${isSelected ? 'background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary);' : ''}">${String.fromCharCode(65 + i)}</span>
                   <div style="flex:1;font-size:var(--text-base);line-height:var(--leading-relaxed);">${this.renderMarkdown(opt.text)}</div>
                   ${showResult && isCorrect ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" stroke-width="2" style="flex-shrink:0;margin-top:2px;"><path d="M20 6L9 17l-5-5"/></svg>' : ''}
                   ${showResult && isSelected && !isCorrect ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-danger)" stroke-width="2" style="flex-shrink:0;margin-top:2px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' : ''}
@@ -265,7 +265,7 @@ export class PracticeView {
             <span style="font-weight:var(--font-medium);">Navigator</span>
             <button class="btn btn-ghost btn-sm" id="btnJump">${t('practice.jump')}</button>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:4px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:4px;">
             ${this.session.questions.map((_, i) => {
               const ans = this.session.answers.get(this.session.questions[i].id);
               let cls = 'nav-btn';
@@ -273,7 +273,8 @@ export class PracticeView {
               else if (ans?.flagged) cls += ' flagged';
               else if (ans?.markedReview) cls += ' marked';
               else if (ans) cls += ' answered';
-              return `<button class="${cls}" data-index="${i}" style="width:36px;height:36px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--text-xs);font-weight:var(--font-medium);${i === this.session.currentIndex ? 'background:var(--color-primary);color:white;border-color:var(--color-primary);' : ans?.flagged ? 'border-color:var(--color-warning);color:var(--color-warning);' : ans?.markedReview ? 'border-color:var(--color-info);color:var(--color-info);' : ans ? 'background:var(--color-success);color:white;border-color:var(--color-success);' : 'background:var(--color-bg);color:var(--color-text-muted);'}">${i + 1}</button>`;
+              const status = i === this.session.currentIndex ? ', sedang dikerjakan' : ans?.flagged ? ', ditandai' : ans?.markedReview ? ', perlu ditinjau' : ans ? ', sudah dijawab' : ', belum dijawab';
+              return `<button type="button" class="${cls}" data-index="${i}" aria-label="Soal ${i + 1}${status}" aria-current="${i === this.session.currentIndex ? 'true' : 'false'}" style="width:44px;height:44px;min-width:44px;min-height:44px;border:1px solid var(--color-border-strong);border-radius:var(--radius-md);font-size:var(--text-xs);font-weight:var(--font-medium);${i === this.session.currentIndex ? 'background:var(--color-primary);color:var(--color-on-primary);border-color:var(--color-primary);' : ans?.flagged ? 'border-color:var(--color-warning);color:var(--color-warning);' : ans?.markedReview ? 'border-color:var(--color-info);color:var(--color-info);' : ans ? 'background:var(--color-success);color:var(--color-on-success);border-color:var(--color-success);' : 'background:var(--color-bg);color:var(--color-text-muted);'}">${i + 1}</button>`;
             }).join('')}
           </div>
         </div>
@@ -305,7 +306,7 @@ export class PracticeView {
 
       <div class="card">
         <div class="card-header">
-          <h3 class="card-title">${t('practice.reviewErrors')}</h3>
+          <h2 class="card-title">${t('practice.reviewErrors')}</h2>
         </div>
         <div class="card-content">
           ${this.session.questions.map((q, i) => {
