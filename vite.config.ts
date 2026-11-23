@@ -38,7 +38,7 @@ export default defineConfig({
       manifest: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,json,png,svg,woff2}'],
-        navigateFallback: '/index.html',
+        navigateFallback: '/offline.html',
         navigateFallbackDenylist: [/^\/sw\.js$/],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
