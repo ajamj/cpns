@@ -1,7 +1,20 @@
 // Questions Repository
 import { db } from '../schema';
-import type { Question, QuestionFilter, QuestionStatistics, MasteryLevel, TopicCode, Difficulty } from '../../shared/types';
+import type {
+  Question,
+  QuestionFilter,
+  QuestionFlags,
+  QuestionMetadata,
+  QuestionStatistics,
+  MasteryLevel,
+  TopicCode,
+  Difficulty,
+} from '../../shared/types';
 import { eventBus, emitQuestionCreated, emitQuestionUpdated, emitQuestionDeleted, emitMasteryUpdated } from '../../core/events';
+import { generateId, nowISO } from '../../core/utils';
+
+const MAX_VERSION_SNAPSHOTS = 5;
+const SMART_SIMILARITY_THRESHOLD = 0.9;
 
 // Helper: filter out soft-deleted questions (deletedAt is undefined or null)
 function isNotDeleted(q: Question): boolean {
@@ -10,6 +23,90 @@ function isNotDeleted(q: Question): boolean {
 
 function isDeleted(q: Question): boolean {
   return q.deletedAt !== undefined && q.deletedAt !== null;
+}
+
+/** Full-text match across every searchable question field (shared by search + filter). */
+function matchesText(q: Question, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return false;
+  return (q.stem ?? '').toLowerCase().includes(needle) ||
+    (q.options ?? []).some(o => (o.text ?? '').toLowerCase().includes(needle)) ||
+    (q.explanation ?? '').toLowerCase().includes(needle) ||
+    (q.tags ?? []).some(t => t.toLowerCase().includes(needle));
+}
+
+/** Single source of truth for every QuestionFilter dimension. */
+function matchesFilter(q: Question, filter: QuestionFilter): boolean {
+  if (filter.topicCodes?.length && !filter.topicCodes.includes(q.topicCode)) return false;
+  if (filter.difficulty !== undefined && q.difficulty !== filter.difficulty) return false;
+  if (filter.flags) {
+    if (filter.flags.bookmarked && !q.flags?.bookmarked) return false;
+    if (filter.flags.needsReview && !q.flags?.needsReview) return false;
+    if (filter.flags.disputed && !q.flags?.disputed) return false;
+  }
+  if (filter.masteryLevels?.length && !filter.masteryLevels.includes(q.statistics?.masteryLevel)) return false;
+  if (filter.source && !(q.source ?? '').toLowerCase().includes(filter.source.toLowerCase())) return false;
+  if (filter.dateRange) {
+    const created = new Date(q.metadata?.createdAt ?? '').getTime();
+    const start = new Date(filter.dateRange.start).getTime();
+    const end = new Date(filter.dateRange.end).getTime() + 86400000;
+    if (Number.isFinite(start) && Number.isFinite(end) && (created < start || created > end)) return false;
+  }
+  if (filter.textSearch?.trim() && !matchesText(q, filter.textSearch)) return false;
+  return true;
+}
+
+/** Token-overlap similarity, matching the preview shown in ImportView. */
+function stemSimilarity(a: string, b: string): number {
+  const wordsA = new Set((a ?? '').toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wordsB = new Set((b ?? '').toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  const intersection = [...wordsA].filter(w => wordsB.has(w)).length;
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return intersection / union;
+}
+
+/** Snapshot of the previous state, with nested versions/deletedAt stripped. */
+function createVersionSnapshot(question: Question): Question {
+  const snapshot = structuredClone(question);
+  delete snapshot.versions;
+  delete snapshot.deletedAt;
+  return snapshot;
+}
+
+/** Keep at most the last 5 snapshots, newest first. */
+function appendVersionSnapshot(next: Question, previous?: Question): void {
+  if (!previous) return;
+  const versions = Array.isArray(next.versions) ? next.versions.slice() : [];
+  versions.unshift(createVersionSnapshot(previous));
+  next.versions = versions.slice(0, MAX_VERSION_SNAPSHOTS);
+}
+
+function cloneQuestion(q: Question): Question {
+  return structuredClone(q);
+}
+
+/** Fill optional fields so imported records cannot break later queries. */
+function normalizeImported(q: Question): Question {
+  const timestamp = nowISO();
+  const defaultFlags: QuestionFlags = { bookmarked: false, needsReview: false, disputed: false };
+  const defaultMetadata: QuestionMetadata = { createdAt: timestamp, updatedAt: timestamp, version: 1, author: 'import' };
+  const defaultStatistics: QuestionStatistics = { totalAttempts: 0, correctAttempts: 0, avgTimeMs: 0, masteryLevel: 0 };
+  return {
+    ...q,
+    tags: Array.isArray(q.tags) ? q.tags : [],
+    options: Array.isArray(q.options) ? q.options : [],
+    correctAnswer: Array.isArray(q.correctAnswer) ? q.correctAnswer : [],
+    flags: Object.assign(defaultFlags, q.flags),
+    metadata: Object.assign(defaultMetadata, q.metadata),
+    statistics: Object.assign(defaultStatistics, q.statistics),
+  };
+}
+
+function isImportable(q: Question): q is Question {
+  return !!q && typeof q.id === 'string' && q.id.length > 0 &&
+    typeof q.stem === 'string' && q.stem.trim().length > 0 &&
+    Array.isArray(q.options) && q.options.length > 0;
 }
 
 export const questionsRepo = {
@@ -33,16 +130,9 @@ export const questionsRepo = {
   },
 
   async put(question: Question): Promise<string> {
-    // Keep version history (last 5)
-    if (!question.versions) question.versions = [];
+    // Keep version history (last 5), newest first, without nesting versions.
     const existing = await db.questions.get(question.id);
-    if (existing) {
-      question.versions.unshift({
-        ...existing,
-        versions: undefined, // Don't nest versions
-      });
-      if (question.versions.length > 5) question.versions.pop();
-    }
+    appendVersionSnapshot(question, existing);
     await db.questions.put(question);
     emitQuestionUpdated(question);
     return question.id;
@@ -100,20 +190,22 @@ export const questionsRepo = {
     return (await db.questions.where('topicCode').equals(topicCode).toArray()).filter(isNotDeleted);
   },
 
+  /** Batch fetch by ID, preserving the caller's order and dropping duplicates. */
   async getByIds(ids: string[]): Promise<Question[]> {
-    return (await db.questions.where('id').anyOf(ids).toArray()).filter(isNotDeleted);
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) return [];
+    const rows = await db.questions.where('id').anyOf(uniqueIds).toArray();
+    const byId = new Map(rows.map(q => [q.id, q]));
+    return uniqueIds
+      .map(id => byId.get(id))
+      .filter((q): q is Question => q !== undefined && isNotDeleted(q));
   },
 
   async search(query: string): Promise<Question[]> {
-    const lowerQuery = query.toLowerCase();
+    if (!query?.trim()) return [];
     return (await db.questions.toArray())
       .filter(isNotDeleted)
-      .filter(q => 
-        q.stem.toLowerCase().includes(lowerQuery) ||
-        q.options.some(o => o.text.toLowerCase().includes(lowerQuery)) ||
-        q.explanation?.toLowerCase().includes(lowerQuery) ||
-        q.tags.some(t => t.toLowerCase().includes(lowerQuery))
-      );
+      .filter(q => matchesText(q, query));
   },
 
   async getFiltered(
@@ -121,65 +213,19 @@ export const questionsRepo = {
     limit = 50,
     offset = 0
   ): Promise<Question[]> {
-    const all = await db.questions.toArray();
-    
-    let filtered = all.filter(isNotDeleted).filter(q => {
-      if (filter.topicCodes?.length && !filter.topicCodes.includes(q.topicCode)) return false;
-      if (filter.difficulty && q.difficulty !== filter.difficulty) return false;
-      if (filter.flags?.bookmarked && !q.flags.bookmarked) return false;
-      if (filter.flags?.needsReview && !q.flags.needsReview) return false;
-      if (filter.masteryLevels?.length && !filter.masteryLevels.includes(q.statistics.masteryLevel)) return false;
-      if (filter.source && !q.source?.toLowerCase().includes(filter.source.toLowerCase())) return false;
-      if (filter.dateRange) {
-        const created = new Date(q.metadata.createdAt).getTime();
-        const start = new Date(filter.dateRange.start).getTime();
-        const end = new Date(filter.dateRange.end).getTime() + 86400000;
-        if (created < start || created > end) return false;
-      }
-      if (filter.textSearch) {
-        const search = filter.textSearch.toLowerCase();
-        if (!q.stem.toLowerCase().includes(search) &&
-            !q.options.some(o => o.text.toLowerCase().includes(search)) &&
-            !q.explanation?.toLowerCase().includes(search) &&
-            !q.tags.some(t => t.toLowerCase().includes(search))) {
-          return false;
-        }
-      }
-      return true;
-    });
+    const filtered = (await db.questions.toArray())
+      .filter(isNotDeleted)
+      .filter(q => matchesFilter(q, filter));
 
     // Sort by createdAt descending (newest first)
     filtered.sort((a, b) => new Date(b.metadata.createdAt).getTime() - new Date(a.metadata.createdAt).getTime());
 
-    return filtered.slice(offset, offset + limit);
+    return filtered.slice(Math.max(0, offset), Math.max(0, offset) + Math.max(0, limit));
   },
 
   async getFilteredCount(filter: QuestionFilter): Promise<number> {
     const all = await db.questions.toArray();
-    return all.filter(isNotDeleted).filter(q => {
-      if (filter.topicCodes?.length && !filter.topicCodes.includes(q.topicCode)) return false;
-      if (filter.difficulty && q.difficulty !== filter.difficulty) return false;
-      if (filter.flags?.bookmarked && !q.flags.bookmarked) return false;
-      if (filter.flags?.needsReview && !q.flags.needsReview) return false;
-      if (filter.masteryLevels?.length && !filter.masteryLevels.includes(q.statistics.masteryLevel)) return false;
-      if (filter.source && !q.source?.toLowerCase().includes(filter.source.toLowerCase())) return false;
-      if (filter.dateRange) {
-        const created = new Date(q.metadata.createdAt).getTime();
-        const start = new Date(filter.dateRange.start).getTime();
-        const end = new Date(filter.dateRange.end).getTime() + 86400000;
-        if (created < start || created > end) return false;
-      }
-      if (filter.textSearch) {
-        const search = filter.textSearch.toLowerCase();
-        if (!q.stem.toLowerCase().includes(search) &&
-            !q.options.some(o => o.text.toLowerCase().includes(search)) &&
-            !q.explanation?.toLowerCase().includes(search) &&
-            !q.tags.some(t => t.toLowerCase().includes(search))) {
-          return false;
-        }
-      }
-      return true;
-    }).length;
+    return all.filter(isNotDeleted).filter(q => matchesFilter(q, filter)).length;
   },
 
   // Trash
@@ -347,45 +393,84 @@ export const questionsRepo = {
     questions: Question[],
     strategy: 'skip' | 'overwrite' | 'duplicate' | 'smart' = 'smart'
   ): Promise<{ imported: number; skipped: number; conflicts: number }> {
+    const incoming = Array.isArray(questions) ? questions : [];
     let imported = 0;
-    let skipped = 0;
+    let skipped = incoming.length;
     let conflicts = 0;
 
-    for (const q of questions) {
-      const existing = await db.questions.get(q.id);
-      
+    // Load once: needed both for ID lookups and for smart stem-similarity checks.
+    const existingAll = (await db.questions.toArray()).map(normalizeImported);
+    const byId = new Map(existingAll.map(q => [q.id, q]));
+    const toAdd: Question[] = [];
+    const toPut: Question[] = [];
+
+    for (const raw of incoming) {
+      if (!isImportable(raw)) continue; // malformed row -> skip, do not abort the batch
+      const q = normalizeImported(cloneQuestion(raw));
+      skipped--;
+
+      const existing = byId.get(q.id);
       if (!existing) {
-        await db.questions.add(q);
-        emitQuestionCreated(q);
+        let candidate = q;
+        if (strategy === 'smart') {
+          const nearDuplicate = existingAll.find(e => stemSimilarity(q.stem, e.stem) > SMART_SIMILARITY_THRESHOLD);
+          if (nearDuplicate) {
+            conflicts++;
+            candidate = { ...candidate, flags: { ...candidate.flags, needsReview: true } };
+          }
+        }
+        toAdd.push(candidate);
+        existingAll.push(candidate);
+        byId.set(candidate.id, candidate);
         imported++;
-      } else if (strategy === 'overwrite' || strategy === 'smart') {
-        q.metadata.version = existing.metadata.version + 1;
-        q.versions = existing.versions || [];
-        q.versions.unshift({ ...existing, versions: undefined });
-        if (q.versions.length > 5) q.versions.pop();
-        await db.questions.put(q);
-        emitQuestionUpdated(q);
-        imported++;
-        if (strategy === 'smart') conflicts++;
+      } else if (strategy === 'skip') {
+        skipped++;
       } else if (strategy === 'duplicate') {
-        const newQuestion = { ...q, id: crypto.randomUUID() };
-        await db.questions.add(newQuestion);
-        emitQuestionCreated(newQuestion);
+        const duplicate: Question = {
+          ...cloneQuestion(q),
+          id: generateId(),
+          versions: [],
+          metadata: { ...q.metadata, createdAt: nowISO(), updatedAt: nowISO(), version: 1 },
+          statistics: { totalAttempts: 0, correctAttempts: 0, avgTimeMs: 0, masteryLevel: 0 },
+        };
+        delete duplicate.deletedAt;
+        toAdd.push(duplicate);
+        existingAll.push(duplicate);
+        byId.set(duplicate.id, duplicate);
         imported++;
       } else {
-        skipped++;
+        // overwrite | smart: same ID updates in place and keeps version history.
+        const merged = cloneQuestion(q);
+        merged.metadata = {
+          ...existing.metadata,
+          ...q.metadata,
+          version: (existing.metadata?.version ?? 0) + 1,
+          updatedAt: nowISO(),
+        };
+        appendVersionSnapshot(merged, existing);
+        toPut.push(merged);
+        const index = existingAll.indexOf(existing);
+        if (index >= 0) existingAll[index] = merged;
+        byId.set(merged.id, merged);
+        imported++;
+        if (strategy === 'smart') conflicts++;
       }
     }
+
+    if (toAdd.length) await db.questions.bulkAdd(toAdd);
+    if (toPut.length) await db.questions.bulkPut(toPut);
+    toAdd.forEach(q => emitQuestionCreated(q));
+    toPut.forEach(q => emitQuestionUpdated(q));
 
     return { imported, skipped, conflicts };
   },
 
   async exportAll(): Promise<Question[]> {
-    return this.getAllWithDeleted();
+    return db.questions.toArray();
   },
 
+  /** Uncapped export of every non-deleted question matching the filter. */
   async exportFiltered(filter: QuestionFilter): Promise<Question[]> {
-    const all = await this.getFiltered(filter, 10000, 0);
-    return all;
+    return (await db.questions.toArray()).filter(isNotDeleted).filter(q => matchesFilter(q, filter));
   },
 };
