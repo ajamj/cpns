@@ -7,13 +7,14 @@ import { getKisiKisiSync } from '../features/kisi-kisi/registry';
 import { navigate, t } from '../core/i18n';
 import { showToast } from '../core/app-utils';
 import { downloadJSON } from '../core/utils';
+import type { QuestionFilter, TopicCode } from '../shared/types';
 
 export class ExportView {
   private params: Record<string, string>;
   private element: HTMLElement | null = null;
-  private exportFormat: 'json' | 'csv' | 'anki' = 'json';
+  private exportFormat: 'csv' | 'anki' = 'csv';
   private exportScope: 'all' | 'filtered' = 'all';
-  private filter: any = {};
+  private filter: QuestionFilter = {};
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -59,7 +60,7 @@ export class ExportView {
               <label class="form-label">${t('export.format')}</label>
               <div class="btn-group" role="radiogroup" style="display:flex;gap:var(--space-2);">
                 <button type="button" class="btn btn-primary" data-format="csv">${t('export.csv')}</button>
-                <button type="button" class="btn btn-secondary" data-format="anki">${t('export.anki')} (Beta)</button>
+                <button type="button" class="btn btn-secondary" data-format="anki">${t('export.anki')}</button>
               </div>
             </div>
 
@@ -146,9 +147,9 @@ export class ExportView {
   private bindEvents(): void {
     if (!this.element) return;
 
-    this.element.querySelectorAll('[data-format]').forEach(btn => {
+    this.element.querySelectorAll<HTMLButtonElement>('[data-format]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.exportFormat = btn.dataset.format as any;
+        this.exportFormat = btn.dataset.format === 'anki' ? 'anki' : 'csv';
         this.element?.querySelectorAll('[data-format]').forEach(b => {
           b.classList.toggle('btn-primary', b === btn);
           b.classList.toggle('btn-secondary', b !== btn);
@@ -156,15 +157,16 @@ export class ExportView {
       });
     });
 
-    this.element.querySelectorAll('[data-scope]').forEach(btn => {
+    this.element.querySelectorAll<HTMLButtonElement>('[data-scope]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.exportScope = btn.dataset.scope as any;
+        this.exportScope = btn.dataset.scope === 'filtered' ? 'filtered' : 'all';
         this.element?.querySelectorAll('[data-scope]').forEach(b => {
           b.classList.toggle('btn-primary', b === btn);
           b.classList.toggle('btn-secondary', b !== btn);
         });
         const filterSection = this.element?.querySelector('#filterSection') as HTMLElement;
         if (filterSection) filterSection.style.display = this.exportScope === 'filtered' ? 'block' : 'none';
+        if (this.exportScope === 'all') this.filter = {};
       });
     });
 
@@ -181,10 +183,16 @@ export class ExportView {
     });
 
     this.element.querySelector('#btnExportQuestions')?.addEventListener('click', async () => {
-      if (this.exportFormat === 'csv') {
-        await import('../db/repositories/backup').then(m => m.backupRepo.downloadQuestionsCSV(this.filter));
-      } else {
-        showToast('Export Anki belum sepenuhnya diimplementasikan', 'info');
+      try {
+        if (this.exportFormat === 'csv') {
+          await backupRepo.downloadQuestionsCSV(this.filter);
+          showToast('CSV soal diunduh', 'success');
+        } else {
+          const count = await backupRepo.downloadQuestionsAnki(this.filter);
+          showToast(`${count} soal diekspor ke Anki (.apkg)`, 'success');
+        }
+      } catch (error) {
+        showToast(`Ekspor gagal: ${error instanceof Error ? error.message : String(error)}`, 'error');
       }
     });
 
@@ -207,13 +215,16 @@ export class ExportView {
     });
 
     this.element.querySelector('#exportTopicFilter')?.addEventListener('change', (e) => {
-      this.filter.topicCodes = (e.target as HTMLSelectElement).value || undefined;
+      const value = (e.target as HTMLSelectElement).value;
+      this.filter.topicCodes = value ? [value as TopicCode] : undefined;
     });
     this.element.querySelector('#exportDifficultyFilter')?.addEventListener('change', (e) => {
-      this.filter.difficulty = (e.target as HTMLSelectElement).value ? parseInt((e.target as HTMLSelectElement).value) : undefined;
+      const value = (e.target as HTMLSelectElement).value;
+      this.filter.difficulty = value ? parseInt(value, 10) as 1 | 2 | 3 : undefined;
     });
     this.element.querySelector('#exportMasteryFilter')?.addEventListener('change', (e) => {
-      this.filter.masteryLevels = Array.from((e.target as HTMLSelectElement).selectedOptions).map(o => parseInt(o.value));
+      this.filter.masteryLevels = Array.from((e.target as HTMLSelectElement).selectedOptions)
+        .map(o => parseInt(o.value, 10) as 0 | 1 | 2 | 3);
     });
   }
 

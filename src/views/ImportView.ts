@@ -1,23 +1,36 @@
-// Import View
-import { backupRepo } from '../db/repositories/backup';
+// Import View — validated JSON/CSV import with a smart-merge preview modal.
+import { backupRepo, parseImportText } from '../db/repositories/backup';
 import { questionsRepo } from '../db/repositories/questions';
-import { navigate, t } from '../core/i18n';
+import { t } from '../core/i18n';
 import { showToast } from '../core/app-utils';
-import { generateId, nowISO } from '../core/utils';
-import { parseCSV } from '../core/utils';
+import { openModal, closeModal } from '../core/modal';
+import { detectConflicts, type ImportConflict, type MergeStrategy } from '../features/import-export/merge';
 import type { ExportData, Question } from '../shared/types';
+import type { ImportIssue } from '../features/import-export/schema';
+
+function escapeHTML(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export class ImportView {
-  private params: Record<string, string>;
   private element: HTMLElement | null = null;
-  private mergeStrategy: 'skip' | 'overwrite' | 'duplicate' | 'smart' = 'smart';
+  private previewOverlay: HTMLElement | null = null;
+  private mergeStrategy: MergeStrategy = 'smart';
   /** Full JSON backup retained so restore also covers progress and settings. */
   private fullBackup: ExportData | null = null;
   private previewData: Question[] = [];
-  private conflicts: Array<{ incoming: Question; existing: Question }> = [];
+  private conflicts: ImportConflict[] = [];
+  private issues: ImportIssue[] = [];
+  private conflictChoices = new Map<string, MergeStrategy>();
+  private applying = false;
 
-  constructor(params: Record<string, string>) {
-    this.params = params;
+  constructor(_params: Record<string, string>) {
+    // Route params are not needed by the import view.
   }
 
   render(): HTMLElement {
@@ -29,17 +42,18 @@ export class ImportView {
   }
 
   private getMergeStrategyButtons(): string {
-    const strategies = ['smart', 'skip', 'overwrite', 'duplicate'];
-    const icons: Record<string, string> = {
+    const strategies: MergeStrategy[] = ['smart', 'skip', 'overwrite', 'duplicate'];
+    const icons: Record<MergeStrategy, string> = {
       smart: '🧠',
       skip: '⏭️',
       overwrite: '🔄',
       duplicate: '📋',
     };
-    
-    return strategies.map(s => `
-      <button type="button" class="btn ${this.mergeStrategy === s ? 'btn-primary' : 'btn-secondary'}" data-strategy="${s}" style="flex:1;min-width:120px;">
-        ${icons[s]} ${t('import.' + s)}
+
+    return strategies.map(strategy => `
+      <button type="button" class="btn ${this.mergeStrategy === strategy ? 'btn-primary' : 'btn-secondary'}"
+        data-strategy="${strategy}" style="flex:1;min-width:120px;" aria-pressed="${this.mergeStrategy === strategy}">
+        ${icons[strategy]} ${escapeHTML(t('import.' + strategy))}
       </button>
     `).join('');
   }
@@ -47,102 +61,31 @@ export class ImportView {
   private getMergeStrategyHelp(): string {
     switch (this.mergeStrategy) {
       case 'smart':
-        return 'ID sama → timpa; Stem 90% mirip → flag review; ID baru → insert. User review yang diflag.';
+        return 'ID sama → timpa; stem 90% mirip → flag review; ID baru → insert. User review yang diflag.';
       case 'skip':
         return 'Lewati soal yang ID-nya sudah ada.';
       case 'overwrite':
         return 'Timpa soal yang ID-nya sudah ada.';
       case 'duplicate':
         return 'Buat duplikat dengan ID baru untuk semua soal.';
-      default:
-        return '';
     }
-  }
-
-  private getConflictsHTML(): string {
-    if (this.conflicts.length === 0) return '';
-    
-    return `
-      <div id="conflictsList" style="margin-bottom:var(--space-4);padding:var(--space-4);background:var(--color-warning-light);border:1px solid var(--color-warning);border-radius:var(--radius-md);">
-        <h3 style="font-size:var(--text-base);margin-bottom:var(--space-2);color:var(--color-warning);">⚠ ${this.conflicts.length} Konflik Terdeteksi</h3>
-        <div id="conflictsItems" style="max-height:200px;overflow:auto;">
-          ${this.conflicts.map((c, i) => `
-            <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3);margin-bottom:var(--space-2);">
-              <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-2);">
-                <div style="flex:1;">
-                  <strong>Masuk (${c.incoming.id.substring(0,8)}...)</strong>
-                  <div style="font-size:var(--text-sm);color:var(--color-text-muted);">${c.incoming.stem.substring(0,100)}...</div>
-                </div>
-                <div style="flex:1;">
-                  <strong>Ada (${c.existing.id.substring(0,8)}...)</strong>
-                  <div style="font-size:var(--text-sm);color:var(--color-text-muted);">${c.existing.stem.substring(0,100)}...</div>
-                </div>
-              </div>
-              <div style="display:flex;gap:var(--space-2);">
-                <button class="btn btn-sm btn-secondary" data-action="skip" data-index="${i}">${t('import.skip')}</button>
-                <button class="btn btn-sm btn-primary" data-action="overwrite" data-index="${i}">${t('import.overwrite')}</button>
-                <button class="btn btn-sm btn-secondary" data-action="keep-both" data-index="${i}">${t('import.duplicate')}</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  private getPreviewTableHTML(): string {
-    const rows = this.previewData.slice(0, 50).map(q => `
-      <tr>
-        <td style="font-family:monospace;font-size:var(--text-xs);">${q.id.substring(0,8)}...</td>
-        <td><span class="badge badge-topic" style="--badge-topic-color:${this.getSubdomainColor(q.topicCode)};">${q.topicCode}</span></td>
-        <td style="max-width:300px;">${q.stem.substring(0,80)}...</td>
-        <td><span class="badge badge-difficulty-${q.difficulty}">${q.difficulty}</span></td>
-        <td>${q.source || '-'}</td>
-      </tr>
-    `).join('');
-
-    const moreRow = this.previewData.length > 50 
-      ? `<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted);">... dan ${this.previewData.length - 50} soal lainnya</td></tr>`
-      : '';
-
-    return `
-      <div class="table-container" style="max-height:300px;overflow:auto;">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Topik</th>
-              <th>Pertanyaan</th>
-              <th>Kesulitan</th>
-              <th>Sumber</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-            ${moreRow}
-          </tbody>
-        </table>
-      </div>
-    `;
   }
 
   private getHTML(): string {
     return `
       <div class="page-header">
-        <h1 class="page-title">${t('import.title')}</h1>
-        <p class="page-subtitle">${t('import.dragDrop')}</p>
+        <h1 class="page-title">${escapeHTML(t('import.title'))}</h1>
+        <p class="page-subtitle">${escapeHTML(t('import.dragDrop'))}</p>
       </div>
 
       <div class="card" style="max-width:800px;">
         <div class="card-content">
-          <!-- Drop Zone -->
           <div id="dropZone" class="drop-zone" style="
             border:2px dashed var(--color-border);
             border-radius:var(--radius-lg);
             padding:var(--space-12);
             text-align:center;
             cursor:pointer;
-            transition:all var(--transition-fast);
           ">
             <input type="file" id="fileInput" accept=".json,.csv" hidden>
             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:var(--space-4);color:var(--color-text-muted);">
@@ -150,47 +93,29 @@ export class ImportView {
               <polyline points="17 8 12 3 7 8"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            <h2 style="font-size:var(--text-lg);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">${t('import.dragDrop')}</h2>
+            <h2 style="font-size:var(--text-lg);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">${escapeHTML(t('import.dragDrop'))}</h2>
             <p style="color:var(--color-text-muted);margin-bottom:var(--space-4);">Atau klik untuk memilih file JSON/CSV</p>
-            <button class="btn btn-secondary" id="btnSelectFile">${t('common.import')}</button>
+            <button class="btn btn-secondary" id="btnSelectFile" type="button">${escapeHTML(t('common.import'))}</button>
           </div>
 
-          <!-- Format Info -->
           <div style="margin-top:var(--space-6);padding:var(--space-4);background:var(--color-bg);border-radius:var(--radius-md);">
             <h3 style="font-size:var(--text-base);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">Format yang Didukung</h3>
             <ul style="font-size:var(--text-sm);color:var(--color-text-muted);line-height:var(--leading-relaxed);">
-              <li><strong>JSON:</strong> Full fidelity backup (soal + progress + flashcard + pengaturan)</li>
-              <li><strong>CSV:</strong> Spreadsheet format (hanya soal, kolom: id,topicCode,stem,optionA-E,correctAnswer,explanation,difficulty,source,tags)</li>
+              <li><strong>JSON:</strong> Array soal atau backup lengkap (soal + progress + flashcard + pengaturan)</li>
+              <li><strong>CSV:</strong> Satu baris per soal, opsi pada kolom A–E, jawaban benar berupa huruf (A,C)</li>
+              <li><strong>Anki:</strong> Ekspor saja (.apkg); impor .apkg tidak didukung</li>
             </ul>
-          </div>
-
-          <!-- Merge Strategy -->
-          <div style="margin-top:var(--space-6);">
-            <label class="form-label">${t('import.mergeStrategy')}</label>
-            <div class="btn-group" role="radiogroup" style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-2);">
-              ${this.getMergeStrategyButtons()}
-            </div>
-            <p class="form-help" style="margin-top:var(--space-2);">
-              ${this.getMergeStrategyHelp()}
+            <p style="font-size:var(--text-sm);color:var(--color-text-muted);margin-top:var(--space-2);">
+              Setiap baris divalidasi (maks. 2000 soal). Laporan kesalahan ditampilkan sebelum data ditulis.
             </p>
           </div>
 
-          <!-- Preview Area -->
-          <div id="previewArea" style="display:none;margin-top:var(--space-6);">
-            <div class="card">
-              <div class="card-header">
-                <h2 class="card-title">${t('import.preview')}</h2>
-                <span class="badge" id="previewCount">0 soal</span>
-              </div>
-              <div class="card-content" style="max-height:400px;overflow:auto;">
-                ${this.getConflictsHTML()}
-                <div id="previewTable"></div>
-              </div>
-              <div class="card-footer">
-                <button class="btn btn-secondary" id="btnCancelImport">${t('common.cancel')}</button>
-                <button class="btn btn-primary" id="btnApplyImport">${t('import.apply')}</button>
-              </div>
+          <div style="margin-top:var(--space-6);">
+            <label class="form-label">${escapeHTML(t('import.mergeStrategy'))}</label>
+            <div class="btn-group" role="radiogroup" style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-2);">
+              ${this.getMergeStrategyButtons()}
             </div>
+            <p class="form-help" id="strategyHelp" style="margin-top:var(--space-2);">${escapeHTML(this.getMergeStrategyHelp())}</p>
           </div>
         </div>
       </div>
@@ -200,208 +125,269 @@ export class ImportView {
   private bindEvents(): void {
     if (!this.element) return;
 
-    const dropZone = this.element.querySelector('#dropZone') as HTMLElement;
-    const fileInput = this.element.querySelector('#fileInput') as HTMLInputElement;
-    const selectBtn = this.element.querySelector('#btnSelectFile') as HTMLButtonElement;
+    const dropZone = this.element.querySelector<HTMLElement>('#dropZone');
+    const fileInput = this.element.querySelector<HTMLInputElement>('#fileInput');
+    const selectBtn = this.element.querySelector<HTMLButtonElement>('#btnSelectFile');
 
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      dropZone?.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+      dropZone?.addEventListener(eventName, event => {
+        event.preventDefault();
+        event.stopPropagation();
       });
     });
-
     ['dragenter', 'dragover'].forEach(eventName => {
       dropZone?.addEventListener(eventName, () => dropZone.classList.add('drag-over'));
     });
-
     ['dragleave', 'drop'].forEach(eventName => {
       dropZone?.addEventListener(eventName, () => dropZone.classList.remove('drag-over'));
     });
-
-    dropZone?.addEventListener('drop', (e) => {
-      const files = (e as DragEvent).dataTransfer?.files;
-      if (files?.length) this.handleFile(files[0]);
+    dropZone?.addEventListener('drop', event => {
+      const files = (event as DragEvent).dataTransfer?.files;
+      if (files?.length) void this.handleFile(files[0]!);
     });
-
-    fileInput?.addEventListener('change', (e) => {
-      const files = (e.target as HTMLInputElement).files;
-      if (files?.length) this.handleFile(files[0]);
+    fileInput?.addEventListener('change', event => {
+      const files = (event.target as HTMLInputElement).files;
+      if (files?.length) void this.handleFile(files[0]!);
+      (event.target as HTMLInputElement).value = '';
     });
-
     selectBtn?.addEventListener('click', () => fileInput?.click());
 
-    this.element.querySelectorAll('[data-strategy]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.mergeStrategy = btn.dataset.strategy as any;
-        this.element?.querySelectorAll('[data-strategy]').forEach(b => {
-          b.classList.toggle('btn-primary', b === btn);
-          b.classList.toggle('btn-secondary', b !== btn);
+    this.element.querySelectorAll<HTMLButtonElement>('[data-strategy]').forEach(button => {
+      button.addEventListener('click', () => {
+        this.mergeStrategy = button.dataset.strategy as MergeStrategy;
+        this.element?.querySelectorAll<HTMLButtonElement>('[data-strategy]').forEach(other => {
+          const active = other.dataset.strategy === this.mergeStrategy;
+          other.classList.toggle('btn-primary', active);
+          other.classList.toggle('btn-secondary', !active);
+          other.setAttribute('aria-pressed', String(active));
         });
-        // Update help text
-        const helpEl = this.element?.querySelector('.form-help');
-        if (helpEl) helpEl.textContent = this.getMergeStrategyHelp();
-        // Update button styles
-        this.element?.querySelectorAll('[data-strategy]').forEach(b => {
-          b.classList.toggle('btn-primary', b.dataset.strategy === this.mergeStrategy);
-          b.classList.toggle('btn-secondary', b.dataset.strategy !== this.mergeStrategy);
-        });
+        const help = this.element?.querySelector('#strategyHelp');
+        if (help) help.textContent = this.getMergeStrategyHelp();
+        this.refreshConflictChoices();
       });
     });
-
-    this.element.querySelector('#btnCancelImport')?.addEventListener('click', () => this.hidePreview());
-    this.element.querySelector('#btnApplyImport')?.addEventListener('click', () => this.applyImport());
   }
 
   private async handleFile(file: File): Promise<void> {
-    if (!file.name.endsWith('.json') && !file.name.endsWith('.csv')) {
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.json') && !name.endsWith('.csv')) {
       showToast('Format file tidak didukung. Gunakan .json atau .csv', 'error');
       return;
     }
 
     try {
-      const text = await file.text();
-      let data: any;
-
-      if (file.name.endsWith('.json')) {
-        data = JSON.parse(text);
-        if (data.schemaVersion && data.data) {
-          this.fullBackup = data as ExportData;
-          this.previewData = data.data.questions || [];
-        } else if (Array.isArray(data)) {
-          this.previewData = data;
-        } else {
-          throw new Error('Format JSON tidak valid');
-        }
-      } else {
-        const rows = parseCSV(text);
-        if (rows.length < 2) throw new Error('CSV harus memiliki header dan minimal 1 baris data');
-        this.previewData = await backupRepo.importFromCSV(text);
-      }
-
-      await this.detectConflicts();
-      this.showPreview();
+      const parsed = parseImportText(await file.text(), file.name);
+      this.previewData = parsed.questions;
+      this.issues = parsed.issues;
+      this.fullBackup = parsed.backup ?? null;
+      this.conflictChoices.clear();
+      const existing = await questionsRepo.getAll();
+      this.conflicts = detectConflicts(this.previewData, existing);
+      this.showPreviewModal();
     } catch (error) {
       showToast(`${t('error.importFailed', { error: error instanceof Error ? error.message : 'Unknown error' })}`, 'error');
     }
   }
 
-  private async detectConflicts(): Promise<void> {
-    this.conflicts = [];
-    
-    for (const q of this.previewData) {
-      const existing = await import('../db/repositories/questions').then(m => m.questionsRepo.getById(q.id));
-      if (existing) {
-        const similarity = this.calculateSimilarity(q.stem, existing.stem);
-        if (similarity > 0.9) {
-          this.conflicts.push({ incoming: q, existing });
-        }
-      }
-    }
-    this.showPreview();
+  private getIssuesHTML(): string {
+    if (this.issues.length === 0) return '';
+    const shown = this.issues.slice(0, 25);
+    return `
+      <div style="padding:var(--space-4);background:var(--color-danger-light);border:1px solid var(--color-danger);border-radius:var(--radius-md);margin-bottom:var(--space-4);">
+        <h3 style="font-size:var(--text-base);margin-bottom:var(--space-2);color:var(--color-danger);">
+          ${escapeHTML(t('import.errors'))} (${this.issues.length})
+        </h3>
+        <ul style="font-size:var(--text-sm);line-height:var(--leading-relaxed);max-height:150px;overflow:auto;">
+          ${shown.map(issue => `<li><strong>${escapeHTML(issue.path)}:</strong> ${escapeHTML(issue.message)}</li>`).join('')}
+        </ul>
+        ${this.issues.length > shown.length
+          ? `<p style="font-size:var(--text-sm);color:var(--color-text-muted);">… dan ${this.issues.length - shown.length} kesalahan lainnya</p>`
+          : ''}
+      </div>
+    `;
   }
 
-  private calculateSimilarity(a: string, b: string): number {
-    const wordsA = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 2));
-    const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 2));
-    const intersection = new Set([...wordsA].filter(w => wordsB.has(w)));
-    const union = new Set([...wordsA, ...wordsB]);
-    return intersection.size / union.size;
-  }
-
-  private showPreview(): void {
-    const previewArea = this.element?.querySelector('#previewArea') as HTMLElement;
-    const previewCount = this.element?.querySelector('#previewCount') as HTMLElement;
-    const conflictsList = this.element?.querySelector('#conflictsList') as HTMLElement;
-    const conflictsItems = this.element?.querySelector('#conflictsItems') as HTMLElement;
-    const previewTable = this.element?.querySelector('#previewTable') as HTMLElement;
-
-    if (previewArea) previewArea.style.display = 'block';
-    if (previewCount) previewCount.textContent = `${this.previewData.length} soal`;
-
-    if (this.conflicts.length > 0) {
-      if (conflictsList) conflictsList.style.display = 'block';
-      if (conflictsItems) conflictsItems.innerHTML = this.getConflictsItemsHTML();
-    } else {
-      if (conflictsList) conflictsList.style.display = 'none';
-    }
-
-    if (previewTable) previewTable.innerHTML = this.getPreviewTableHTML();
-    
-    if (previewArea) previewArea.style.display = 'block';
-  }
-
-  private getConflictsItemsHTML(): string {
-    return this.conflicts.map((c, i) => `
-      <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3);margin-bottom:var(--space-2);">
-        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-2);">
-          <div style="flex:1;">
-            <strong>Masuk (${c.incoming.id.substring(0,8)}...)</strong>
-            <div style="font-size:var(--text-sm);color:var(--color-text-muted);">${c.incoming.stem.substring(0,100)}...</div>
-          </div>
-          <div style="flex:1;">
-            <strong>Ada (${c.existing.id.substring(0,8)}...)</strong>
-            <div style="font-size:var(--text-sm);color:var(--color-text-muted);">${c.existing.stem.substring(0,100)}...</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:var(--space-2);">
-          <button class="btn btn-sm btn-secondary" data-action="skip" data-index="${i}">${t('import.skip')}</button>
-          <button class="btn btn-sm btn-primary" data-action="overwrite" data-index="${i}">${t('import.overwrite')}</button>
-          <button class="btn btn-sm btn-secondary" data-action="keep-both" data-index="${i}">${t('import.duplicate')}</button>
+  private getConflictsHTML(): string {
+    if (this.conflicts.length === 0) return '';
+    return `
+      <div style="padding:var(--space-4);background:var(--color-warning-light);border:1px solid var(--color-warning);border-radius:var(--radius-md);margin-bottom:var(--space-4);">
+        <h3 style="font-size:var(--text-base);margin-bottom:var(--space-2);color:var(--color-warning);">
+          ⚠ ${this.conflicts.length} Konflik Terdeteksi
+        </h3>
+        <div style="max-height:240px;overflow:auto;">
+          ${this.conflicts.map((conflict, index) => this.getConflictHTML(conflict, index)).join('')}
         </div>
       </div>
+    `;
+  }
+
+  private getConflictHTML(conflict: ImportConflict, index: number): string {
+    const id = conflict.incoming.id;
+    const choice = this.conflictChoices.get(id);
+    const action = (value: MergeStrategy, label: string): string => `
+      <button type="button" class="btn btn-sm ${choice === value ? 'btn-primary' : 'btn-secondary'}"
+        data-conflict-action="${value}" data-conflict-id="${escapeHTML(id)}">${escapeHTML(label)}</button>
+    `;
+    const kind = conflict.kind === 'id' ? 'ID sama' : `stem ${Math.round(conflict.similarity * 100)}% mirip`;
+    return `
+      <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3);margin-bottom:var(--space-2);">
+        <div style="display:flex;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-2);">
+          <strong>${index + 1}. ${escapeHTML(kind)}</strong>
+          <span style="font-size:var(--text-xs);color:var(--color-text-muted);">${escapeHTML(conflict.incoming.id.substring(0, 12))}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin-bottom:var(--space-2);">
+          <div>
+            <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${escapeHTML(t('import.incoming'))}</div>
+            <div style="font-size:var(--text-sm);">${escapeHTML(conflict.incoming.stem.substring(0, 90))}</div>
+          </div>
+          <div>
+            <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${escapeHTML(t('import.existing'))}</div>
+            <div style="font-size:var(--text-sm);">${escapeHTML(conflict.existing.stem.substring(0, 90))}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+          ${action('overwrite', t('import.overwrite'))}
+          ${action('skip', t('import.skip'))}
+          ${action('duplicate', t('import.duplicate'))}
+          <button type="button" class="btn btn-sm ${!choice ? 'btn-primary' : 'btn-secondary'}"
+            data-conflict-action="auto" data-conflict-id="${escapeHTML(id)}">${escapeHTML(t('import.smart'))}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  private getPreviewTableHTML(): string {
+    if (this.previewData.length === 0) return '<p style="color:var(--color-text-muted);">Tidak ada soal valid untuk ditampilkan.</p>';
+    const rows = this.previewData.slice(0, 50).map(question => `
+      <tr>
+        <td style="font-family:monospace;font-size:var(--text-xs);">${escapeHTML(question.id.substring(0, 8))}…</td>
+        <td>${escapeHTML(question.topicCode)}</td>
+        <td style="max-width:300px;">${escapeHTML(question.stem.substring(0, 80))}${question.stem.length > 80 ? '…' : ''}</td>
+        <td><span class="badge badge-difficulty-${question.difficulty}">${question.difficulty}</span></td>
+        <td>${escapeHTML(question.source || '-')}</td>
+      </tr>
     `).join('');
+    const more = this.previewData.length > 50
+      ? `<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted);">… dan ${this.previewData.length - 50} soal lainnya</td></tr>`
+      : '';
+    return `
+      <div class="table-container" style="max-height:260px;overflow:auto;">
+        <table class="table">
+          <thead><tr><th>ID</th><th>Topik</th><th>Pertanyaan</th><th>Kesulitan</th><th>Sumber</th></tr></thead>
+          <tbody>${rows}${more}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  private showPreviewModal(): void {
+    closeModal(this.previewOverlay);
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:900px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${escapeHTML(t('import.preview'))}</h2>
+          <button type="button" class="modal-close" id="importPreviewClose" aria-label="${escapeHTML(t('common.close'))}">×</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-top:0;display:flex;gap:var(--space-2);flex-wrap:wrap;">
+            <span class="badge">${this.previewData.length} soal valid</span>
+            <span class="badge">${this.issues.length} kesalahan</span>
+            <span class="badge">${this.conflicts.length} konflik</span>
+            <span class="badge">${escapeHTML(this.fullBackup ? 'Backup lengkap' : 'Soal saja')}</span>
+          </p>
+          ${this.getIssuesHTML()}
+          ${this.getConflictsHTML()}
+          <h3 style="font-size:var(--text-base);margin-bottom:var(--space-2);">${escapeHTML(t('import.preview'))}</h3>
+          ${this.getPreviewTableHTML()}
+        </div>
+        <div class="modal-footer">
+          <span style="font-size:var(--text-sm);color:var(--color-text-muted);flex:1;">${escapeHTML(this.getMergeStrategyHelp())}</span>
+          <button type="button" class="btn btn-secondary" id="btnCancelImport">${escapeHTML(t('common.cancel'))}</button>
+          <button type="button" class="btn btn-primary" id="btnApplyImport" ${this.issues.length || this.previewData.length === 0 ? 'disabled' : ''}>
+            ${escapeHTML(t('import.apply'))}
+          </button>
+        </div>
+      </div>
+    `;
+    this.previewOverlay = overlay;
+    openModal(overlay);
+    overlay.querySelector('#importPreviewClose')?.addEventListener('click', () => this.hidePreview());
+    overlay.querySelector('#btnCancelImport')?.addEventListener('click', () => this.hidePreview());
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) this.hidePreview();
+    });
+    overlay.addEventListener('keydown', event => {
+      if ((event as KeyboardEvent).key === 'Escape') this.hidePreview();
+    });
+    overlay.querySelectorAll<HTMLButtonElement>('[data-conflict-action]').forEach(button => {
+      button.addEventListener('click', () => this.selectConflictAction(button.dataset.conflictId ?? '', button.dataset.conflictAction));
+    });
+    overlay.querySelector('#btnApplyImport')?.addEventListener('click', () => void this.applyImport());
+  }
+
+  private selectConflictAction(id: string, action: string | undefined): void {
+    if (!action) return;
+    if (action === 'auto') this.conflictChoices.delete(id);
+    else this.conflictChoices.set(id, action as MergeStrategy);
+    this.refreshConflictChoices();
+  }
+
+  /** Reflect per-conflict overrides without rebuilding the whole modal. */
+  private refreshConflictChoices(): void {
+    if (!this.previewOverlay) return;
+    this.previewOverlay.querySelectorAll<HTMLButtonElement>('[data-conflict-action]').forEach(button => {
+      const id = button.dataset.conflictId ?? '';
+      const choice = this.conflictChoices.get(id);
+      const active = button.dataset.conflictAction === 'auto' ? !choice : choice === button.dataset.conflictAction;
+      button.classList.toggle('btn-primary', active);
+      button.classList.toggle('btn-secondary', !active);
+    });
   }
 
   private hidePreview(): void {
-    const previewArea = this.element?.querySelector('#previewArea') as HTMLElement;
-    if (previewArea) previewArea.style.display = 'none';
+    closeModal(this.previewOverlay);
+    this.previewOverlay = null;
     this.previewData = [];
+    this.issues = [];
     this.conflicts = [];
+    this.conflictChoices.clear();
     this.fullBackup = null;
   }
 
   private async applyImport(): Promise<void> {
+    if (this.applying || this.issues.length > 0 || this.previewData.length === 0) return;
+    this.applying = true;
+    const applyButton = this.previewOverlay?.querySelector<HTMLButtonElement>('#btnApplyImport');
+    if (applyButton) applyButton.disabled = true;
     try {
-      // A full JSON backup is a self-contained restore (STATE.md): keep every
-      // table from the exported file, not just the previewed questions. CSV and
-      // plain question arrays still use the minimal envelope below.
+      // A full backup restores every table explicitly present in the file;
+      // CSV/array imports only carry `questions` so progress data is preserved.
       const backup: ExportData = this.fullBackup ?? {
         schemaVersion: 1,
         exportedAt: new Date().toISOString(),
         appVersion: '1.0.0',
-        data: {
-          questions: this.previewData,
-          sessions: [],
-          attempts: [],
-          flashcards: [],
-          settings: [],
-          kisiKisi: [],
-        }
+        data: { questions: this.previewData } as ExportData['data'],
       };
-      const result = await import('../db/repositories/backup').then(m =>
-        m.backupRepo.restoreBackup(backup, {
-          mergeStrategy: this.mergeStrategy,
-          restoreSettings: !!this.fullBackup,
-        })
-      );
+      const result = await backupRepo.restoreBackup(backup, {
+        mergeStrategy: this.mergeStrategy,
+        restoreSettings: !!this.fullBackup,
+        strategyFor: question => this.conflictChoices.get(question.id),
+      });
 
       if (result.restored) {
-        showToast(`${t('import.success', { count: result.counts.questions })}`, 'success');
+        showToast(`${t('import.success', { count: result.counts.questions ?? 0 })}`, 'success');
         this.hidePreview();
-        this.previewData = [];
-        this.conflicts = [];
       } else {
         showToast(result.errors.join(', '), 'error');
+        if (applyButton) applyButton.disabled = false;
       }
     } catch (error) {
       showToast(`${t('error.importFailed', { error: error instanceof Error ? error.message : 'Unknown error' })}`, 'error');
+      if (applyButton) applyButton.disabled = false;
+    } finally {
+      this.applying = false;
     }
-  }
-
-  private getSubdomainColor(code: string): string {
-    if (code.startsWith('UM-')) return 'var(--subdomain-meteorology)';
-    if (code.startsWith('KH-')) return 'var(--subdomain-climatology)';
-    return 'var(--subdomain-default)';
   }
 }

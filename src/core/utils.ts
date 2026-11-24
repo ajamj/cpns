@@ -85,30 +85,46 @@ export function downloadJSON(data: unknown, filename: string): void {
 }
 
 export function parseCSV(csv: string): string[][] {
-  const lines = csv.trim().split('\n');
-  return lines.map(line => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
+  // Quote-aware parser: a field may contain commas, escaped quotes and even
+  // newlines (Markdown stems), all of which `toCSV` writes as quoted cells.
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < csv.length; i++) {
+    const char = csv[i];
+    if (inQuotes) {
       if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
+        if (csv[i + 1] === '"') {
+          field += '"';
           i++;
         } else {
-          inQuotes = !inQuotes;
+          inQuotes = false;
         }
-      } else if (char === ',' && !inQuotes) {
-        result.push(current);
-        current = '';
       } else {
-        current += char;
+        field += char;
       }
+    } else if (char === '"') {
+      inQuotes = true;
+    } else if (char === ',') {
+      row.push(field);
+      field = '';
+    } else if (char === '\n' || char === '\r') {
+      if (char === '\r' && csv[i + 1] === '\n') i++;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += char;
     }
-    result.push(current);
-    return result;
-  });
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
 }
 
 export function toCSV(rows: string[][]): string {

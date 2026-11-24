@@ -12,9 +12,9 @@ import type {
 } from '../../shared/types';
 import { eventBus, emitQuestionCreated, emitQuestionUpdated, emitQuestionDeleted, emitMasteryUpdated } from '../../core/events';
 import { generateId, nowISO } from '../../core/utils';
+import { stemSimilarity, SMART_SIMILARITY_THRESHOLD, type MergeStrategy } from '../../features/import-export/merge';
 
 const MAX_VERSION_SNAPSHOTS = 5;
-const SMART_SIMILARITY_THRESHOLD = 0.9;
 
 // Helper: filter out soft-deleted questions (deletedAt is undefined or null)
 function isNotDeleted(q: Question): boolean {
@@ -54,16 +54,6 @@ function matchesFilter(q: Question, filter: QuestionFilter): boolean {
   }
   if (filter.textSearch?.trim() && !matchesText(q, filter.textSearch)) return false;
   return true;
-}
-
-/** Token-overlap similarity, matching the preview shown in ImportView. */
-function stemSimilarity(a: string, b: string): number {
-  const wordsA = new Set((a ?? '').toLowerCase().split(/\s+/).filter(w => w.length > 2));
-  const wordsB = new Set((b ?? '').toLowerCase().split(/\s+/).filter(w => w.length > 2));
-  if (wordsA.size === 0 || wordsB.size === 0) return 0;
-  const intersection = [...wordsA].filter(w => wordsB.has(w)).length;
-  const union = new Set([...wordsA, ...wordsB]).size;
-  return intersection / union;
 }
 
 /** Snapshot of the previous state, with nested versions/deletedAt stripped. */
@@ -391,7 +381,9 @@ export const questionsRepo = {
   // Import/Export helpers
   async importQuestions(
     questions: Question[],
-    strategy: 'skip' | 'overwrite' | 'duplicate' | 'smart' = 'smart'
+    strategy: MergeStrategy = 'smart',
+    /** Optional per-question override chosen in the import preview modal. */
+    strategyFor?: (question: Question) => MergeStrategy | undefined
   ): Promise<{ imported: number; skipped: number; conflicts: number }> {
     const incoming = Array.isArray(questions) ? questions : [];
     let imported = 0;
@@ -407,12 +399,13 @@ export const questionsRepo = {
     for (const raw of incoming) {
       if (!isImportable(raw)) continue; // malformed row -> skip, do not abort the batch
       const q = normalizeImported(cloneQuestion(raw));
+      const effectiveStrategy = strategyFor?.(q) ?? strategy;
       skipped--;
 
       const existing = byId.get(q.id);
       if (!existing) {
         let candidate = q;
-        if (strategy === 'smart') {
+        if (effectiveStrategy === 'smart') {
           const nearDuplicate = existingAll.find(e => stemSimilarity(q.stem, e.stem) > SMART_SIMILARITY_THRESHOLD);
           if (nearDuplicate) {
             conflicts++;
@@ -423,9 +416,9 @@ export const questionsRepo = {
         existingAll.push(candidate);
         byId.set(candidate.id, candidate);
         imported++;
-      } else if (strategy === 'skip') {
+      } else if (effectiveStrategy === 'skip') {
         skipped++;
-      } else if (strategy === 'duplicate') {
+      } else if (effectiveStrategy === 'duplicate') {
         const duplicate: Question = {
           ...cloneQuestion(q),
           id: generateId(),
@@ -453,7 +446,7 @@ export const questionsRepo = {
         if (index >= 0) existingAll[index] = merged;
         byId.set(merged.id, merged);
         imported++;
-        if (strategy === 'smart') conflicts++;
+        if (effectiveStrategy === 'smart') conflicts++;
       }
     }
 
