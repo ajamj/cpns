@@ -1,10 +1,35 @@
-import { defineConfig } from 'vite';
+import fs from 'node:fs';
 import path from 'path';
+import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+
+/**
+ * GitHub Pages serves 404.html for unknown paths. Copying index.html there
+ * keeps hash-route deep links working without a server-side rewrite rule.
+ */
+function copyIndexTo404(): Plugin {
+  let outDir = 'dist';
+  return {
+    name: 'copy-index-to-404',
+    apply: 'build',
+    configResolved(config) {
+      outDir = config.build.outDir;
+    },
+    writeBundle() {
+      const index = path.resolve(outDir, 'index.html');
+      if (fs.existsSync(index)) {
+        fs.copyFileSync(index, path.resolve(outDir, '404.html'));
+      }
+    },
+  };
+}
 
 export default defineConfig({
   root: '.',
   publicDir: 'public',
+  // Project-scope Pages URLs need a sub-path base; a custom domain keeps '/'.
+  // Example: VITE_BASE=/cpns/ npm run build
+  base: process.env.VITE_BASE || '/',
   build: {
     outDir: 'dist',
     // Source maps are development-only: they are the largest files in dist/
@@ -33,6 +58,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    copyIndexTo404(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: null,

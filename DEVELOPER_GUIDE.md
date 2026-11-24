@@ -129,7 +129,7 @@ npm run build         # build + check:size
 
 Otomasi Phase 5 menyediakan `npm run check:lighthouse` (`scripts/lighthouse-check.mjs`): skrip ini menyalakan `node scripts/serve.mjs dist 4173`, menjalankan Lighthouse CLI headless untuk profil desktop dan mobile, menulis `reports/lighthouse.json`, dan gagal bila salah satu ambang tidak tercapai — **Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 90, PWA ≥ 90**. Jalankan setelah `npm run build && npm run check:size`.
 
-> Catatan status: skrip Lighthouse, workflow GitHub Pages, dan `npm run release` menyertai langkah distribusi/QA Phase 5. Bagian di bawah mengasumsikan otomasi tersebut sudah ada di cabang rilis; sebelum itu, jalankan langkah manual yang dijelaskan dan perintah inti (`npm run build`, `npm run check:size`, `npm run test:e2e`).
+> Otomasi distribusi Phase 5 sudah tersedia: `.github/workflows/deploy.yml`, `npm run release`, dan `npm run check:lighthouse` (bila skrip Lighthouse terpasang). Pemeriksaan manual di bawah tetap berguna untuk diagnosis lokal; perintah intinya adalah `npm run build`, `npm run check:size`, dan `npm run test:e2e`.
 
 Pemeriksaan manual tanpa skrip: jalankan `npm run build && npm run serve`, buka Chrome DevTools → **Lighthouse**, pilih mode *Navigation* serta kategori Performance/Accessibility/Best Practices/PWA, jalankan untuk desktop dan mobile, lalu simpan hasilnya. Perbaiki penyebab konkret (aset tak ter-precache → PWA; console error → Best Practices; aturan axe → Accessibility; chunk besar → Performance), bukan menurunkan ambang atau menonaktifkan audit.
 
@@ -145,15 +145,16 @@ Pemeriksaan manual tanpa skrip: jalankan `npm run build && npm run serve`, buka 
 
 Workflow `.github/workflows/deploy.yml` (disiapkan bersama otomasi distribusi) berjalan pada push ke `main` dan pada tag `v*`, dengan izin minimal `contents: read`, `pages: write`, `id-token: write`, konkurensi grup `pages`, dan aksi yang di-*pin* pada versi mayor. Job `build` menjalankan `npm ci`, `npm run lint`, `npm run test:run`, `npm run build`, `npm run check:size`, lalu mengunggah `dist/`; job `deploy` mempublikasikannya lewat `actions/deploy-pages@v4`.
 
-- Rute memakai hash, sehingga *deep link* tidak memerlukan rewrite server; hasil build juga menyalin `index.html` menjadi `404.html`.
-- Base path diatur lewat variabel lingkungan **`VITE_BASE`** bila memakai URL proyek (`https://<user>.github.io/<repo>/`). Jangan menghardcode `/cpns/` bila memakai domain kustom. File `CNAME` hanya ditambahkan bila domain memang disediakan pemilik proyek.
+- Rute memakai hash, sehingga *deep link* tidak memerlukan rewrite server; plugin build di `vite.config.ts` menyalin `index.html` menjadi `dist/404.html`.
+- Base path diatur lewat variabel lingkungan **`VITE_BASE`** bila memakai URL proyek (`https://<user>.github.io/<repo>/`): jalankan `VITE_BASE=/<repo>/ npm run build`. Nilai defaultnya `/` untuk domain kustom atau Pages level pengguna. Jangan menghardcode `/cpns/` bila memakai domain kustom. File `CNAME` hanya ditambahkan bila domain memang disediakan pemilik proyek.
 - Tidak ada secret/PAT yang ditanam di workflow; autentikasi Pages memakai `id-token: write`.
 
 Alur rilis dengan `npm run release -- 1.0.0`:
 
 1. Pastikan branch `main`, worktree bersih, dan `CHANGELOG.md` memiliki judul `## [1.0.0] - <tanggal>` yang cocok.
 2. Skrip rilis menolak dirty worktree / branch lain, memeriksa semver (kasus khusus: versi `1.0.0` yang sama diperbolehkan bila tag `v1.0.0` belum ada), lalu menjalankan `npm run lint`, `npm run test:run`, `npm run build`, dan `npm run check:size`.
-3. Skrip membuat **annotated tag** `v1.0.0` yang pesannya merujuk ke bagian changelog, lalu mencetak `git push origin main --follow-tags`. Tambahkan `--push` bila Anda ingin skrip yang melakukan push.
-4. Setelah tag sampai ke remote, pantau Actions `build → deploy`, lalu verifikasi URL Pages mengembalikan HTTP 200, `manifest.json` valid, dan `sw.js` terdaftar.
+3. Skrip membuat commit rilis untuk perubahan versi (`npm version --no-git-tag-version`), lalu **annotated tag** `v1.0.0` yang pesannya merujuk ke bagian changelog, lalu mencetak `git push origin main --follow-tags`. Tambahkan `--push` bila Anda ingin skrip yang melakukan push.
+4. `npm run release -- 1.0.0 --dry-run` menjalankan semua pemeriksaan tanpa mengubah versi, membuat commit/tag, atau pushing; gerbang branch/worktree dilewati pada mode ini.
+5. Setelah tag sampai ke remote, pantau Actions `build → deploy`, lalu verifikasi URL Pages mengembalikan HTTP 200, `manifest.json` valid, dan `sw.js` terdaftar.
 
 Semua perintah di atas dijalankan dari akar repository. Perubahan dokumentasi mengikuti format Keep a Changelog di [CHANGELOG.md](CHANGELOG.md).

@@ -15,6 +15,7 @@ Rilis pertama CPNS BMKG SKB Prep: aplikasi PWA offline untuk persiapan SKB CPNS 
 - **PWA (Fase 4–5):** manifest dengan ikon 72–512 px dan pintasan, service worker Workbox yang ter-precache, halaman offline mandiri, prompt pemasangan, alur pembaruan dengan toast dan refresh yang dikonfirmasi pengguna, penyimpanan persisten, dan peringatan kuota 80%.
 - **Aksesibilitas dan performa (Fase 5):** skip link, fokus terlihat dan terkelola, kontras token AA, target sentuh ≥44 px, preferensi skala font 80–150%, kurangi animasi, kontras tinggi, chunk view malas, daftar soal tervirtualisasi, selector termemoisasi, dan anggaran ukuran bundle.
 - **Dokumentasi (Fase 5):** `README.md`, `USER_GUIDE.md`, `DEVELOPER_GUIDE.md`, dan `CHANGELOG.md` ini.
+- **Distribusi (Fase 5):** workflow GitHub Pages `build → deploy` pada push `main`/tag `v*` dengan izin minimal dan OIDC, `404.html` untuk deep link, serta skrip rilis `npm run release` yang memeriksa kebersihan worktree, semver, dan bagian changelog sebelum membuat tag beranotasi.
 
 ### Changed
 
