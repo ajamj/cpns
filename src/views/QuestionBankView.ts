@@ -5,6 +5,7 @@ import {
   getAllTopicCodes,
   getSubdomainColor,
   getTopicsByCategory,
+  getTopicsBySubdomain,
   loadKisiKisi,
 } from '../features/kisi-kisi/registry';
 import {
@@ -26,7 +27,16 @@ import { generateId, nowISO, downloadJSON, parseCSV, toCSV } from '../core/utils
 import { memoizeSelector, showToast } from '../core/app-utils';
 import { closeModal, openModal } from '../core/modal';
 import type EasyMDE from 'easymde';
-import type { Difficulty, Question, QuestionFilter } from '../shared/types';
+import type {
+  Difficulty,
+  KisiKisiTopic,
+  MasteryLevel,
+  Question,
+  QuestionFilter,
+  QuestionFlag,
+  QuestionFlags,
+  TopicCode,
+} from '../shared/types';
 import Fuse from 'fuse.js';
 import {
   Virtualizer,
@@ -56,6 +66,20 @@ function escapeHTML(value: unknown): string {
       default: return '&#39;';
     }
   });
+}
+
+const SUBDOMAIN_LABEL_KEYS: Record<KisiKisiTopic['subdomain'], string> = {
+  meteorology: 'subdomain.meteorology',
+  climatology: 'subdomain.climatology',
+  geophysics: 'subdomain.geophysics',
+  geology: 'subdomain.geology',
+  instrumentation: 'subdomain.instrumentation',
+};
+
+function subdomainLabel(subdomain: KisiKisiTopic['subdomain']): string {
+  const key = SUBDOMAIN_LABEL_KEYS[subdomain] ?? subdomain;
+  const label = t(key);
+  return label === key ? subdomain : label;
 }
 
 /** Normalised searchable text, built at most once per question object. */
@@ -166,13 +190,19 @@ export class QuestionBankView {
   }
 
   private parseFilterFromParams(): void {
-    if (this.params.topic) this.filter.topicCodes = this.params.topic.split(',');
+    if (this.params.topic) this.filter.topicCodes = this.params.topic.split(',') as TopicCode[];
     if (this.params.difficulty) this.filter.difficulty = parseInt(this.params.difficulty) as any;
     if (this.params.mastery) this.filter.masteryLevels = this.params.mastery.split(',').map(Number) as any;
     if (this.params.flags) {
       const flags = this.params.flags.split(',');
       this.filter.flags = {};
-      flags.forEach(f => { this.filter.flags![f as any] = true; });
+      flags.forEach(f => { this.filter.flags![f as QuestionFlag] = true; });
+    }
+    if (this.params.source) this.filter.source = this.params.source;
+    if (this.params.startDate || this.params.endDate) {
+      const start = this.params.startDate ?? this.params.endDate ?? '';
+      const end = this.params.endDate ?? this.params.startDate ?? '';
+      if (start <= end) this.filter.dateRange = { start, end };
     }
     if (this.params.search) this.searchQuery = this.params.search;
   }
@@ -263,58 +293,90 @@ export class QuestionBankView {
         </div>
       </div>
 
-      <!-- Filter Bar -->
-      <div class="card" style="margin-bottom:var(--space-4);">
-        <div class="card-content">
-          <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;align-items:flex-end;">
-            <div style="flex:1;min-width:250px;">
-              <label class="form-label">${t('common.search')}</label>
-              <div style="position:relative;">
-                <input type="search" id="searchInput" class="form-input" placeholder="${t('common.search')}..." value="${this.searchQuery}" style="padding-right:40px;">
-                <button type="button" id="btnClearSearch" class="btn btn-ghost btn-icon" aria-label="${t('filter.clear')}" style="position:absolute;right:var(--space-2);top:50%;transform:translateY(-50%);" ${!this.searchQuery ? 'hidden' : ''}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-              </div>
-            </div>
-            
-            <div class="filter-dropdown">
-              <button class="btn btn-secondary" id="btnTopicFilter" style="min-width:180px;">
-                ${t('filter.topic')}: ${this.filter.topicCodes?.length ? this.filter.topicCodes.length + ' dipilih' : t('filter.all')}
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:var(--space-1);"><polyline points="6 9 12 15 18 9"/></svg>
-              </button>
-              <div class="dropdown-menu" id="topicFilterMenu" style="max-height:300px;overflow:auto;min-width:250px;display:none;">
-                <label class="dropdown-item"><input type="checkbox" value="" ${!this.filter.topicCodes?.length ? 'checked' : ''}> ${t('filter.all')}</label>
-                ${this.getTopicFilterHTML()}
-              </div>
-            </div>
+      <div class="question-bank-layout">
+      <!-- Filter sidebar: all filter dimensions persist across re-renders -->
+      <aside class="question-filter-sidebar card" id="filterSidebar" aria-label="${t('common.filter')}">
+        <div class="filter-sidebar-inner">
+          <div class="filter-sidebar-header">
+            <h2 class="filter-sidebar-title">${t('common.filter')}</h2>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnClearFilters">${t('filter.clear')}</button>
+          </div>
 
-            <select id="difficultyFilter" class="form-select" aria-label="${t('filter.difficulty')}" style="min-width:150px;">
+          <div class="filter-section">
+            <label class="form-label" for="searchInput">${t('common.search')}</label>
+            <div style="position:relative;">
+              <input type="search" id="searchInput" class="form-input" placeholder="${t('common.search')}" value="${escapeHTML(this.searchQuery)}" style="padding-right:40px;">
+              <button type="button" id="btnClearSearch" class="btn btn-ghost btn-icon" aria-label="${t('common.search')}: ${t('filter.clear')}" style="position:absolute;right:var(--space-2);top:50%;transform:translateY(-50%);" ${!this.searchQuery ? 'hidden' : ''}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <section class="filter-section">
+            <h3 class="filter-section-title" id="topicFilterLabel">${t('filter.topic')}</h3>
+            <div class="filter-tree" role="group" aria-labelledby="topicFilterLabel">
+              ${this.getTopicTreeHTML()}
+            </div>
+          </section>
+
+          <div class="filter-section">
+            <label class="form-label" for="difficultyFilter">${t('filter.difficulty')}</label>
+            <select id="difficultyFilter" class="form-select" aria-label="${t('filter.difficulty')}">
               <option value="">${t('filter.all')}</option>
               <option value="1" ${this.filter.difficulty === 1 ? 'selected' : ''}>${t('difficulty.1')}</option>
               <option value="2" ${this.filter.difficulty === 2 ? 'selected' : ''}>${t('difficulty.2')}</option>
               <option value="3" ${this.filter.difficulty === 3 ? 'selected' : ''}>${t('difficulty.3')}</option>
             </select>
-
-            <select id="masteryFilter" class="form-select" aria-label="${t('filter.mastery')}" style="min-width:150px;" multiple>
-              <option value="">${t('filter.all')}</option>
-              <option value="0" ${this.filter.masteryLevels?.includes(0) ? 'selected' : ''}>${t('mastery.0')}</option>
-              <option value="1" ${this.filter.masteryLevels?.includes(1) ? 'selected' : ''}>${t('mastery.1')}</option>
-              <option value="2" ${this.filter.masteryLevels?.includes(2) ? 'selected' : ''}>${t('mastery.2')}</option>
-              <option value="3" ${this.filter.masteryLevels?.includes(3) ? 'selected' : ''}>${t('mastery.3')}</option>
-            </select>
-
-            <select id="flagsFilter" class="form-select" aria-label="${t('filter.flags')}" style="min-width:150px;" multiple>
-              <option value="">${t('filter.flags')}</option>
-              <option value="bookmarked" ${this.filter.flags?.bookmarked ? 'selected' : ''}>${t('filter.bookmarked')}</option>
-              <option value="needsReview" ${this.filter.flags?.needsReview ? 'selected' : ''}>${t('filter.needsReview')}</option>
-              <option value="disputed" ${this.filter.flags?.disputed ? 'selected' : ''}>${t('filter.disputed')}</option>
-            </select>
-
-            <button class="btn btn-ghost" id="btnClearFilters">${t('filter.clear')}</button>
           </div>
-        </div>
-      </div>
 
+          <section class="filter-section">
+            <fieldset class="filter-fieldset">
+              <legend class="filter-section-title">${t('filter.flags')}</legend>
+              ${([
+                ['bookmarked', 'filter.bookmarked'],
+                ['needsReview', 'filter.needsReview'],
+                ['disputed', 'filter.disputed'],
+              ] as Array<[QuestionFlag, string]>).map(([flag, label]) => `
+                <label class="form-check filter-check">
+                  <input type="checkbox" class="form-check-input" id="flagFilter-${flag}" name="filterFlag" value="${flag}" ${this.filter.flags?.[flag] ? 'checked' : ''}>
+                  <span class="form-check-label">${t(label)}</span>
+                </label>`).join('')}
+            </fieldset>
+          </section>
+
+          <section class="filter-section">
+            <fieldset class="filter-fieldset">
+              <legend class="filter-section-title">${t('filter.mastery')}</legend>
+              ${([0, 1, 2, 3] as MasteryLevel[]).map(level => `
+                <label class="form-check filter-check">
+                  <input type="checkbox" class="form-check-input" id="masteryFilter-${level}" name="filterMastery" value="${level}" ${this.filter.masteryLevels?.includes(level) ? 'checked' : ''}>
+                  <span class="form-check-label">${t('mastery.' + level)}</span>
+                </label>`).join('')}
+            </fieldset>
+          </section>
+
+          <div class="filter-section">
+            <label class="form-label" for="sourceFilter">${t('filter.source')}</label>
+            <input type="text" id="sourceFilter" class="form-input" placeholder="${t('filter.source')}" value="${escapeHTML(this.filter.source ?? '')}" autocomplete="off">
+          </div>
+
+          <section class="filter-section">
+            <h3 class="filter-section-title" id="dateRangeLabel">${t('filter.dateRange')}</h3>
+            <div class="filter-date-range" role="group" aria-labelledby="dateRangeLabel">
+              <div>
+                <label class="filter-sublabel" for="dateStart">${t('filter.dateStart')}</label>
+                <input type="date" id="dateStart" class="form-input" value="${escapeHTML(this.filter.dateRange?.start ?? '')}">
+              </div>
+              <div>
+                <label class="filter-sublabel" for="dateEnd">${t('filter.dateEnd')}</label>
+                <input type="date" id="dateEnd" class="form-input" value="${escapeHTML(this.filter.dateRange?.end ?? '')}">
+              </div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <div class="question-bank-main">
       <!-- Bulk Actions Bar -->
       ${this.selectedIds.size > 0 ? `
         <div class="card" style="margin-bottom:var(--space-4);background:var(--color-primary-light);border-color:var(--color-primary);">
@@ -362,39 +424,81 @@ export class QuestionBankView {
           ${t('qb.title')}: ${this.filteredQuestions.length} / ${this.questions.length}
         </div>
       </div>
+      </div>
+    </div>
     `;
   }
 
   /**
-   * Topic checkboxes for the list filter. The registry is loaded before the
-   * view renders (app.ts), so this stays synchronous — no Promise leaked into
-   * the markup as happened with the old in-template loadKisiKisi() calls.
+   * Multi-select topic tree: category → subdomain → topic. The registry is
+   * loaded before the view renders (app.ts), so this stays synchronous.
+   * Branch checkboxes carry their leaf codes in `data-topic-codes`, which lets
+   * a single change handler add/remove whole subdomains or categories.
    */
-  private getTopicFilterHTML(): string {
-    const groups: Array<{ category: 'umum' | 'khusus'; label: string }> = [
-      { category: 'umum', label: t('kisi-kisi.umum') },
-      { category: 'khusus', label: t('kisi-kisi.khusus') },
-    ];
+  private getTopicTreeHTML(): string {
+    const selected = new Set<string>(this.filter.topicCodes ?? []);
     const registered = new Set(getAllTopicCodes());
     const legacyCodes = [...new Set(this.questions.map(q => q.topicCode))]
       .filter(code => !registered.has(code));
 
-    const groupHTML = (label: string, codes: Array<{ code: string; title?: string }>): string => `
-      <div class="dropdown-divider"></div>
-      <div class="dropdown-item" style="font-weight:var(--font-semibold);color:var(--color-text-muted);padding:var(--space-2) var(--space-3);">${escapeHTML(label)}</div>
-      ${codes.map(topic => `
-        <label class="dropdown-item">
-          <input type="checkbox" value="${escapeHTML(topic.code)}" ${this.filter.topicCodes?.includes(topic.code as any) ? 'checked' : ''}>
-          ${escapeHTML(topic.code)} - ${escapeHTML(topic.title ?? '')}
-        </label>
-      `).join('')}
-    `;
+    const topicHTML = (topic: { code: string; title?: string }): string => `
+      <label class="filter-tree-leaf" for="filter-topic-${escapeHTML(topic.code)}">
+        <input type="checkbox" class="form-check-input filter-topic" id="filter-topic-${escapeHTML(topic.code)}" value="${escapeHTML(topic.code)}" ${selected.has(topic.code) ? 'checked' : ''}>
+        <span class="filter-topic-code">${escapeHTML(topic.code)}</span>
+        ${topic.title ? `<span class="filter-topic-title">${escapeHTML(topic.title)}</span>` : ''}
+      </label>`;
 
-    return groups.map(group =>
-      groupHTML(group.label, getTopicsByCategory(group.category))
-    ).join('') + (legacyCodes.length
-      ? groupHTML(t('qb.importedTopics'), legacyCodes.map(code => ({ code })))
+    const branchHTML = (
+      id: string,
+      label: string,
+      codes: string[],
+      className: string
+    ): string => `
+      <label class="filter-tree-branch ${className}" for="${escapeHTML(id)}">
+        <input type="checkbox" class="form-check-input filter-topic-branch" id="${escapeHTML(id)}" data-topic-codes="${escapeHTML(codes.join(','))}" ${codes.length > 0 && codes.every(code => selected.has(code)) ? 'checked' : ''}>
+        <span>${escapeHTML(label)}</span>
+      </label>`;
+
+    const categories: Array<{ id: 'umum' | 'khusus'; label: string }> = [
+      { id: 'umum', label: t('kisi-kisi.umum') },
+      { id: 'khusus', label: t('kisi-kisi.khusus') },
+    ];
+
+    const categoryHTML = ({ id, label }: { id: 'umum' | 'khusus'; label: string }): string => {
+      const topics = getTopicsByCategory(id);
+      const subdomains = [...new Set(topics.map(topic => topic.subdomain))];
+      const subdomainHTML = subdomains.map(subdomain => {
+        const subTopics = getTopicsBySubdomain(subdomain).filter(topic => topic.category === id);
+        const codes = subTopics.map(topic => topic.code);
+        return `
+          <div class="filter-tree-subdomain">
+            ${branchHTML(`filter-subdomain-${id}-${subdomain}`, subdomainLabel(subdomain), codes, 'filter-tree-subdomain-label')}
+            <div class="filter-tree-children">${subTopics.map(topicHTML).join('')}</div>
+          </div>`;
+      }).join('');
+      return `
+        <div class="filter-tree-category">
+          ${branchHTML(`filter-category-${id}`, label, topics.map(topic => topic.code), 'filter-tree-category-label')}
+          ${subdomainHTML}
+        </div>`;
+    };
+
+    return categories.map(categoryHTML).join('') + (legacyCodes.length
+      ? `<div class="filter-tree-category">
+           <div class="filter-tree-legacy-label">${escapeHTML(t('qb.importedTopics'))}</div>
+           <div class="filter-tree-children">${legacyCodes.map(code => topicHTML({ code })).join('')}</div>
+         </div>`
       : '');
+  }
+
+  /** Reflect partially selected branches (native checkboxes have no tri-state attribute). */
+  private syncTopicTreeIndeterminate(): void {
+    const selected = new Set<string>(this.filter.topicCodes ?? []);
+    this.element?.querySelectorAll<HTMLInputElement>('.filter-topic-branch').forEach(input => {
+      const codes = (input.dataset.topicCodes ?? '').split(',').filter(Boolean);
+      const matched = codes.filter(code => selected.has(code)).length;
+      input.indeterminate = matched > 0 && matched < codes.length;
+    });
   }
 
   /** One fixed-height row, extracted from the old paged innerHTML template. */
@@ -530,81 +634,68 @@ export class QuestionBankView {
   private bindEvents(): void {
     if (!this.element) return;
 
-    // Search
-    const searchInput = this.element.querySelector('#searchInput') as HTMLInputElement;
-    const clearSearch = this.element.querySelector('#btnClearSearch') as HTMLButtonElement;
-    
-    searchInput?.addEventListener('input', debounce((e) => {
-      const target = e.target as HTMLInputElement;
-      this.searchQuery = target.value;
+    // Search — debounced; refreshView() restores focus and caret afterwards.
+    const searchInput = this.element.querySelector<HTMLInputElement>('#searchInput');
+    const clearSearch = this.element.querySelector<HTMLButtonElement>('#btnClearSearch');
+
+    searchInput?.addEventListener('input', debounce(() => {
+      this.searchQuery = searchInput.value;
       this.applyFilters();
       this.refreshView();
-      if (clearSearch) clearSearch.hidden = !this.searchQuery;
     }, 50));
 
     clearSearch?.addEventListener('click', () => {
       this.searchQuery = '';
-      if (searchInput) searchInput.value = '';
       this.applyFilters();
       this.refreshView();
-      clearSearch.hidden = true;
     });
 
-    // Topic filter dropdown
-    const topicFilterBtn = this.element.querySelector('#btnTopicFilter');
-    const topicFilterMenu = this.element.querySelector('#topicFilterMenu');
-    
-    topicFilterBtn?.addEventListener('click', () => {
-      if (topicFilterMenu) topicFilterMenu.style.display = topicFilterMenu.style.display === 'block' ? 'none' : 'block';
-    });
+    const sidebar = this.element.querySelector<HTMLElement>('#filterSidebar');
 
-    topicFilterMenu?.addEventListener('change', (e) => {
-      const target = e.target as HTMLInputElement;
-      if (target.type === 'checkbox') {
-        if (target.value === '') {
-          this.filter.topicCodes = [];
-          topicFilterMenu.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-            (cb as HTMLInputElement).checked = cb === target;
-          });
-        } else {
-          const checked = topicFilterMenu.querySelectorAll('input[type="checkbox"]:checked');
-          this.filter.topicCodes = Array.from(checked).map(c => (c as HTMLInputElement).value).filter(v => v !== '');
-          const allCheckbox = topicFilterMenu.querySelector('input[value=""]') as HTMLInputElement;
-          if (allCheckbox) allCheckbox.checked = this.filter.topicCodes.length === 0;
-        }
+    // Source is a substring match; debounce to avoid re-rendering mid-keystroke.
+    const sourceInput = sidebar?.querySelector<HTMLInputElement>('#sourceFilter');
+    sourceInput?.addEventListener('input', debounce(() => {
+      const value = sourceInput.value.trim();
+      this.filter.source = value || undefined;
+      this.applyFilters();
+      this.refreshView();
+    }, 150));
+
+    // One delegated handler covers every checkbox/select in the sidebar,
+    // including the category and subdomain branch checkboxes.
+    sidebar?.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+      let changed = true;
+
+      if (target instanceof HTMLInputElement && target.matches('.filter-topic')) {
+        const codes = new Set<string>(this.filter.topicCodes ?? []);
+        if (target.checked) codes.add(target.value);
+        else codes.delete(target.value);
+        this.filter.topicCodes = [...codes] as TopicCode[];
+      } else if (target instanceof HTMLInputElement && target.matches('.filter-topic-branch')) {
+        this.setTopicCodes((target.dataset.topicCodes ?? '').split(',').filter(Boolean), target.checked);
+      } else if (target.id === 'difficultyFilter') {
+        this.filter.difficulty = target.value ? Number(target.value) as Difficulty : undefined;
+      } else if (target.name === 'filterFlag') {
+        const flags: Partial<QuestionFlags> = {};
+        sidebar.querySelectorAll<HTMLInputElement>('input[name="filterFlag"]:checked').forEach(cb => {
+          flags[cb.value as QuestionFlag] = true;
+        });
+        this.filter.flags = flags;
+      } else if (target.name === 'filterMastery') {
+        this.filter.masteryLevels = Array.from(sidebar.querySelectorAll<HTMLInputElement>('input[name="filterMastery"]:checked'))
+          .map(cb => Number(cb.value) as MasteryLevel);
+      } else if (target.id === 'dateStart' || target.id === 'dateEnd') {
+        changed = this.applyDateRange();
+      } else {
+        changed = false;
+      }
+
+      if (changed) {
         this.applyFilters();
         this.refreshView();
-        if (topicFilterBtn) {
-          topicFilterBtn.textContent = `${t('filter.topic')}: ${this.filter.topicCodes.length ? this.filter.topicCodes.length + ' dipilih' : t('filter.all')}`;
-        }
       }
-    });
-
-    // Difficulty filter
-    this.element.querySelector('#difficultyFilter')?.addEventListener('change', (e) => {
-      const target = e.target as HTMLSelectElement;
-      this.filter.difficulty = target.value ? parseInt(target.value) as any : undefined;
-      this.applyFilters();
-      this.refreshView();
-    });
-
-    // Mastery filter
-    this.element.querySelector('#masteryFilter')?.addEventListener('change', (e) => {
-      const target = e.target as HTMLSelectElement;
-      this.filter.masteryLevels = Array.from(target.selectedOptions).map(o => parseInt(o.value) as any);
-      this.applyFilters();
-      this.refreshView();
-    });
-
-    // Flags filter
-    this.element.querySelector('#flagsFilter')?.addEventListener('change', (e) => {
-      const target = e.target as HTMLSelectElement;
-      this.filter.flags = {};
-      Array.from(target.selectedOptions).forEach(o => {
-        this.filter.flags![o.value as any] = true;
-      });
-      this.applyFilters();
-      this.refreshView();
     });
 
     // Clear filters
@@ -614,6 +705,8 @@ export class QuestionBankView {
       this.applyFilters();
       this.refreshView();
     });
+
+    this.syncTopicTreeIndeterminate();
 
     // Selection
     this.element.querySelector('#selectAllHeader')?.addEventListener('change', (e) => {
@@ -654,17 +747,66 @@ export class QuestionBankView {
     this.element.querySelector('#btnTrash')?.addEventListener('click', () => navigate('trash'));
   }
 
+  private setTopicCodes(codes: string[], checked: boolean): void {
+    const selected = new Set<string>(this.filter.topicCodes ?? []);
+    codes.forEach(code => checked ? selected.add(code) : selected.delete(code));
+    this.filter.topicCodes = [...selected] as TopicCode[];
+  }
+
+  /** Validate the date pair before passing it to the repository filter. */
+  private applyDateRange(): boolean {
+    const sidebar = this.element?.querySelector<HTMLElement>('#filterSidebar');
+    const startInput = sidebar?.querySelector<HTMLInputElement>('#dateStart');
+    const endInput = sidebar?.querySelector<HTMLInputElement>('#dateEnd');
+    const start = startInput?.value ?? '';
+    const end = endInput?.value ?? '';
+
+    if (start && end && start > end) {
+      showToast(t('filter.invalidDateRange'), 'error');
+      // Revert the invalid input so the UI keeps reflecting applied filters.
+      if (startInput) startInput.value = this.filter.dateRange?.start ?? '';
+      if (endInput) endInput.value = this.filter.dateRange?.end ?? '';
+      return false;
+    }
+    // A single date filters that one day (inclusive) instead of excluding all.
+    this.filter.dateRange = start || end ? { start: start || end, end: end || start } : undefined;
+    return true;
+  }
+
   private refreshView(): void {
     if (!this.element) return;
     // Preserve the table's scroll position unless a filter changed (in which
     // case applyFilters() flags a reset to the top of the new result set).
     const scrollTop = this.resetScrollOnRefresh ? 0 : (this.scrollElement?.scrollTop ?? 0);
     this.resetScrollOnRefresh = false;
+    // Re-rendering replaces the sidebar too: keep its scroll and the focused
+    // control (search/source typing must not lose focus after each keystroke).
+    const active = document.activeElement as HTMLElement | null;
+    const focusId = active && this.element.contains(active) ? active.id : '';
+    const focusStart =
+      active instanceof HTMLTextAreaElement ||
+      (active instanceof HTMLInputElement && ['text', 'search', 'tel', 'url'].includes(active.type))
+        ? active.selectionStart
+        : null;
+    const sidebarScrollTop = this.element.querySelector<HTMLElement>('#filterSidebar .filter-sidebar-inner')?.scrollTop ?? 0;
     this.disposeVirtualizer();
     this.element.innerHTML = this.getHTML();
     this.bindEvents();
     this.mountQuestionList();
     if (this.scrollElement) this.scrollElement.scrollTop = scrollTop;
+    const sidebarInner = this.element.querySelector<HTMLElement>('#filterSidebar .filter-sidebar-inner');
+    if (sidebarInner) sidebarInner.scrollTop = sidebarScrollTop;
+    if (focusId) {
+      const next = this.element.querySelector<HTMLElement>(`[id="${focusId}"]`);
+      if (next) {
+        next.focus({ preventScroll: true });
+        if (focusStart !== null && next instanceof HTMLInputElement) {
+          next.setSelectionRange(focusStart, focusStart);
+        } else if (focusStart !== null && next instanceof HTMLTextAreaElement) {
+          next.setSelectionRange(focusStart, focusStart);
+        }
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
