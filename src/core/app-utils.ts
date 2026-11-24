@@ -88,3 +88,37 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
     timeoutId = setTimeout(() => fn(...args), delay);
   };
 }
+
+/**
+ * Small LRU selector cache for derived data that is expensive to recompute
+ * (e.g. filtering thousands of questions). Callers pass a serialized cache key
+ * so repeated renders with the same filter object/value skip the work, and
+ * call `clear()` whenever the underlying source data changes.
+ */
+export function memoizeSelector<TArgs extends unknown[], TResult>(
+  compute: (...args: TArgs) => TResult,
+  keyOf: (...args: TArgs) => string,
+  maxEntries = 8
+): ((...args: TArgs) => TResult) & { clear(): void } {
+  const cache = new Map<string, TResult>();
+
+  const memoized = (...args: TArgs): TResult => {
+    const key = keyOf(...args);
+    const cached = cache.get(key);
+    if (cached !== undefined) {
+      cache.delete(key);
+      cache.set(key, cached);
+      return cached;
+    }
+    const result = compute(...args);
+    cache.set(key, result);
+    if (cache.size > maxEntries) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+    return result;
+  };
+
+  memoized.clear = (): void => cache.clear();
+  return memoized;
+}

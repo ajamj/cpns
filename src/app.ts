@@ -24,11 +24,18 @@ import { QuestionBankView } from './views/QuestionBankView';
 import { PracticeView } from './views/PracticeView';
 import { MockExamView } from './views/MockExamView';
 import { FlashcardsView } from './views/FlashcardsView';
-import { AnalyticsView } from './views/AnalyticsView';
-import { SettingsView } from './views/SettingsView';
-import { ImportView } from './views/ImportView';
-import { ExportView } from './views/ExportView';
-import { TrashView } from './views/TrashView';
+
+// Views outside the first paint are loaded on demand. Each import() becomes a
+// separate hashed chunk that the service worker precaches at install time, so
+// lazy loading does not compromise offline navigation.
+type ViewParams = Record<string, string>;
+const lazyViews: Partial<Record<string, (params: ViewParams) => Promise<HTMLElement>>> = {
+  analytics: async (params) => new (await import('./views/AnalyticsView')).AnalyticsView(params).render(),
+  settings: async (params) => new (await import('./views/SettingsView')).SettingsView(params).render(),
+  import: async (params) => new (await import('./views/ImportView')).ImportView(params).render(),
+  export: async (params) => new (await import('./views/ExportView')).ExportView(params).render(),
+  trash: async (params) => new (await import('./views/TrashView')).TrashView(params).render(),
+};
 
 // Type for PWA install prompt
 interface BeforeInstallPromptEvent extends Event {
@@ -153,6 +160,23 @@ async function initApp(): Promise<void> {
   console.log(`${APP_CONFIG.name} v${APP_CONFIG.version} initialized`);
 }
 
+// Incremented on every route render so a late-arriving lazy chunk cannot
+// replace a view the user has already navigated away from.
+let renderToken = 0;
+
+/** Lightweight, accessible placeholder shown while a lazy view chunk loads. */
+function createLoadingPlaceholder(): HTMLElement {
+  const placeholder = document.createElement('div');
+  placeholder.className = 'view-loading';
+  placeholder.setAttribute('role', 'status');
+  placeholder.setAttribute('aria-live', 'polite');
+  placeholder.innerHTML = `
+    <div class="page-header"><h1 class="page-title">${t('common.loading')}</h1></div>
+    <div class="card skeleton" style="min-height:320px;"></div>
+  `;
+  return placeholder;
+}
+
 // Render route
 function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
   // Re-read preferences before every render: a backup restore or a settings
@@ -163,6 +187,7 @@ function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
   // land directly on the view content.
   const app = document.getElementById('main-content') ?? document.getElementById('app');
   if (!app) return;
+  const token = ++renderToken;
   
   // Clean up previous view
   if (currentView) {
@@ -170,11 +195,33 @@ function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
     currentView = null;
   }
   
-  // Create new view
-  let viewElement: HTMLElement;
-  
   const params = route.params as Record<string, string>;
+  const loadView = lazyViews[route.view];
+  if (loadView) {
+    const placeholder = createLoadingPlaceholder();
+    currentView = placeholder;
+    app.appendChild(placeholder);
+    updateActiveNav(route.view);
+    window.scrollTo(0, 0);
+    void loadView(params)
+      .then((viewElement) => {
+        if (token !== renderToken || !placeholder.isConnected) return;
+        placeholder.replaceWith(viewElement);
+        currentView = viewElement;
+      })
+      .catch((error: unknown) => {
+        console.error(`Failed to load ${route.view} view:`, error);
+        if (token !== renderToken || !placeholder.isConnected) return;
+        placeholder.innerHTML = `
+          <div class="page-header"><h1 class="page-title">${route.view}</h1></div>
+          <div class="card"><div class="card-content">Gagal memuat halaman. Silakan muat ulang.</div></div>
+        `;
+      });
+    return;
+  }
   
+  // First-paint views stay synchronous.
+  let viewElement: HTMLElement;
   switch (route.view) {
     case 'dashboard':
       viewElement = new DashboardView(params).render();
@@ -190,21 +237,6 @@ function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
       break;
     case 'flashcards':
       viewElement = new FlashcardsView(params).render();
-      break;
-    case 'analytics':
-      viewElement = new AnalyticsView(params).render();
-      break;
-    case 'settings':
-      viewElement = new SettingsView(params).render();
-      break;
-    case 'import':
-      viewElement = new ImportView(params).render();
-      break;
-    case 'export':
-      viewElement = new ExportView(params).render();
-      break;
-    case 'trash':
-      viewElement = new TrashView(params).render();
       break;
     default:
       viewElement = new DashboardView(params).render();

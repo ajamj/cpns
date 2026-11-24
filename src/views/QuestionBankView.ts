@@ -7,19 +7,83 @@ import { eventBus } from '../core/events';
 import { generateId, nowISO, downloadJSON, parseCSV, toCSV } from '../core/utils';
 import type { Question, QuestionFilter } from '../shared/types';
 import Fuse from 'fuse.js';
+import {
+  Virtualizer,
+  elementScroll,
+  observeElementOffset,
+  observeElementRect,
+} from '@tanstack/virtual-core';
+import { memoizeSelector } from '../core/app-utils';
+
+const ROW_HEIGHT = 76;
+const OVERSCAN = 8;
+// Small lists stay fully rendered (simpler keyboard traversal); virtualization
+// kicks in for large banks where rendering every row would block the UI.
+const VIRTUALIZE_THRESHOLD = 200;
+
+/** Derives the visible question set once per distinct search/filter key. */
+const selectFilteredQuestions = memoizeSelector(
+  (
+    questions: any[],
+    searchQuery: string,
+    filter: QuestionFilter,
+    fuse: Fuse<any> | null
+  ): any[] => {
+    let filtered = [...questions];
+
+    if (searchQuery && fuse) {
+      const ids = new Set(fuse.search(searchQuery).map((r) => r.item.id));
+      filtered = filtered.filter((q) => ids.has(q.id));
+    }
+    if (filter.topicCodes?.length) {
+      filtered = filtered.filter((q) => filter.topicCodes!.includes(q.topicCode));
+    }
+    if (filter.difficulty) {
+      filtered = filtered.filter((q) => q.difficulty === filter.difficulty);
+    }
+    if (filter.masteryLevels?.length) {
+      filtered = filtered.filter((q) => filter.masteryLevels!.includes(q.statistics.masteryLevel));
+    }
+    if (filter.flags) {
+      if (filter.flags.bookmarked) filtered = filtered.filter((q) => q.flags.bookmarked);
+      if (filter.flags.needsReview) filtered = filtered.filter((q) => q.flags.needsReview);
+      if (filter.flags.disputed) filtered = filtered.filter((q) => q.flags.disputed);
+    }
+    if (filter.source) {
+      const src = filter.source.toLowerCase();
+      filtered = filtered.filter((q) => q.source?.toLowerCase().includes(src));
+    }
+    if (filter.dateRange) {
+      const start = new Date(filter.dateRange.start).getTime();
+      const end = new Date(filter.dateRange.end).getTime() + 86400000;
+      filtered = filtered.filter((q) => {
+        const created = new Date(q.metadata.createdAt).getTime();
+        return created >= start && created <= end;
+      });
+    }
+
+    filtered.sort((a, b) => new Date(b.metadata.createdAt).getTime() - new Date(a.metadata.createdAt).getTime());
+    return filtered;
+  },
+  (_questions, searchQuery, filter, fuse) =>
+    `${fuse ? 'fuse' : 'plain'}|${searchQuery}|${JSON.stringify(filter)}`
+);
 
 export class QuestionBankView {
   private params: Record<string, string>;
   private element: HTMLElement | null = null;
   private questions: any[] = [];
   private filteredQuestions: any[] = [];
-  private currentPage = 0;
-  private pageSize = 50;
   private filter: QuestionFilter = {};
   private searchQuery = '';
-  private fuse: Fuse | null = null;
+  private fuse: Fuse<any> | null = null;
   private selectedIds: Set<string> = new Set();
   private selectAll = false;
+  private virtualizer: Virtualizer<HTMLElement, HTMLElement> | null = null;
+  private virtualCleanup: (() => void) | null = null;
+  private scrollElement: HTMLElement | null = null;
+  private tbody: HTMLTableSectionElement | null = null;
+  private resetScrollOnRefresh = false;
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -40,7 +104,9 @@ export class QuestionBankView {
 
   async loadQuestions(): Promise<void> {
     this.questions = await questionsRepo.getAll();
-    
+    // Underlying data changed: the memoized selector cache is no longer valid.
+    selectFilteredQuestions.clear();
+
     // Initialize Fuse.js for search
     this.fuse = new Fuse(this.questions, {
       keys: [
@@ -53,75 +119,30 @@ export class QuestionBankView {
       includeScore: true,
       minMatchCharLength: 2,
     });
-    
+
     this.applyFilters();
   }
 
   private applyFilters(): void {
-    let filtered = [...this.questions];
-
-    // Text search
-    if (this.searchQuery && this.fuse) {
-      const results = this.fuse.search(this.searchQuery);
-      const ids = new Set(results.map(r => r.item.id));
-      filtered = filtered.filter(q => ids.has(q.id));
-    }
-
-    // Topic filter
-    if (this.filter.topicCodes?.length) {
-      filtered = filtered.filter(q => this.filter.topicCodes!.includes(q.topicCode));
-    }
-
-    // Difficulty filter
-    if (this.filter.difficulty) {
-      filtered = filtered.filter(q => q.difficulty === this.filter.difficulty);
-    }
-
-    // Mastery filter
-    if (this.filter.masteryLevels?.length) {
-      filtered = filtered.filter(q => this.filter.masteryLevels!.includes(q.statistics.masteryLevel));
-    }
-
-    // Flags filter
-    if (this.filter.flags) {
-      if (this.filter.flags.bookmarked) filtered = filtered.filter(q => q.flags.bookmarked);
-      if (this.filter.flags.needsReview) filtered = filtered.filter(q => q.flags.needsReview);
-      if (this.filter.flags.disputed) filtered = filtered.filter(q => q.flags.disputed);
-    }
-
-    // Source filter
-    if (this.filter.source) {
-      const src = this.filter.source.toLowerCase();
-      filtered = filtered.filter(q => q.source?.toLowerCase().includes(src));
-    }
-
-    // Date range filter
-    if (this.filter.dateRange) {
-      const start = new Date(this.filter.dateRange.start).getTime();
-      const end = new Date(this.filter.dateRange.end).getTime() + 86400000; // end of day
-      filtered = filtered.filter(q => {
-        const created = new Date(q.metadata.createdAt).getTime();
-        return created >= start && created <= end;
-      });
-    }
-
-    // Sort by createdAt desc
-    filtered.sort((a, b) => new Date(b.metadata.createdAt).getTime() - new Date(a.metadata.createdAt).getTime());
-
-    this.filteredQuestions = filtered;
-    this.currentPage = 0;
+    this.filteredQuestions = selectFilteredQuestions(
+      this.questions,
+      this.searchQuery,
+      this.filter,
+      this.fuse
+    );
+    // A changed filter starts at the top of the virtual list again.
+    this.resetScrollOnRefresh = true;
     this.updateSelectionState();
   }
 
   private updateSelectionState(): void {
+    const visibleIds = new Set(this.filteredQuestions.map((q) => q.id));
     if (this.selectAll) {
-      this.selectedIds = new Set(this.filteredQuestions.map(q => q.id));
+      this.selectedIds = visibleIds;
     } else {
-      // Remove deselected from filtered
+      // Drop selections no longer present in the filtered result.
       for (const id of this.selectedIds) {
-        if (!this.filteredQuestions.some(q => q.id === id)) {
-          this.selectedIds.delete(id);
-        }
+        if (!visibleIds.has(id)) this.selectedIds.delete(id);
       }
     }
   }
@@ -135,6 +156,7 @@ export class QuestionBankView {
       if (this.element) {
         this.element.innerHTML = this.getHTML();
         this.bindEvents();
+        this.mountQuestionList();
       }
     });
 
@@ -151,11 +173,6 @@ export class QuestionBankView {
   }
 
   private getHTML(): string {
-    const start = this.currentPage * this.pageSize;
-    const end = Math.min(start + this.pageSize, this.filteredQuestions.length);
-    const pageQuestions = this.filteredQuestions.slice(start, end);
-    const totalPages = Math.ceil(this.filteredQuestions.length / this.pageSize);
-
     return `
       <div class="page-header">
         <h1 class="page-title">${t('qb.title')}</h1>
@@ -254,9 +271,9 @@ export class QuestionBankView {
         </div>
       ` : ''}
 
-      <!-- Question Table -->
+      <!-- Question Table (virtualized: only visible rows are in the DOM) -->
       <div class="card">
-        <div class="table-container">
+        <div id="questionsScroll" class="table-container" style="max-height:min(70vh,720px);overflow:auto;">
           <table class="table" id="questionsTable">
             <thead>
               <tr>
@@ -271,73 +288,128 @@ export class QuestionBankView {
                 <th style="width:120px;">${t('common.actions')}</th>
               </tr>
             </thead>
-            <tbody>
-              ${pageQuestions.map(q => `
-                <tr data-id="${q.id}" ${this.selectedIds.has(q.id) ? 'class="selected"' : ''}>
-                  <td><input type="checkbox" class="form-check-input row-checkbox bulk-checkbox" aria-label="Pilih soal ${q.topicCode}" value="${q.id}" ${this.selectedIds.has(q.id) ? 'checked' : ''}></td>
-                  <td>
-                    <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(q.topicCode)};">${q.topicCode}</span>
-                  </td>
-                  <td style="max-width:400px;">
-                    <div style="font-weight:var(--font-medium);">${q.stem.length > 100 ? q.stem.substring(0, 100) + '...' : q.stem}</div>
-                    ${q.explanation ? `<div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px;">${q.explanation.substring(0, 80)}...</div>` : ''}
-                  </td>
-                  <td><span class="badge badge-difficulty-${q.difficulty}">${t('difficulty.' + q.difficulty)}</span></td>
-                  <td>
-                    <span class="badge badge-mastery-${q.statistics.masteryLevel}">${t('mastery.' + q.statistics.masteryLevel)}</span>
-                    <span style="font-size:var(--text-xs);color:var(--color-text-muted);margin-left:var(--space-1);">${q.statistics.totalAttempts} percobaan</span>
-                  </td>
-                  <td>
-                    ${q.flags.bookmarked ? '<span class="badge badge-warning" title="Bookmark">★</span>' : ''}
-                    ${q.flags.needsReview ? '<span class="badge badge-info" title="Perlu Ulang">↻</span>' : ''}
-                    ${q.flags.disputed ? '<span class="badge badge-danger" title="Disput">⚠</span>' : ''}
-                  </td>
-                  <td>
-                    <div style="display:flex;gap:var(--space-1);">
-                      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${q.id}" aria-label="${t('common.edit')}" title="${t('common.edit')}">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </button>
-                      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="duplicate" data-id="${q.id}" aria-label="Duplikat soal" title="Duplikat">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                      </button>
-                      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${q.id}" aria-label="${t('common.delete')}" title="${t('common.delete')}">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
+            <tbody id="questionsBody"></tbody>
           </table>
         </div>
-
-        <!-- Pagination -->
-        ${totalPages > 1 ? `
-          <div class="card-footer" style="display:flex;align-items:center;justify-content:space-between;">
-            <div style="font-size:var(--text-sm);color:var(--color-text-muted);">
-              Menampilkan ${start + 1}-${end} dari ${this.filteredQuestions.length} soal
-            </div>
-            <div style="display:flex;gap:var(--space-1);">
-              <button type="button" class="btn btn-ghost btn-sm" id="btnPrevPage" aria-label="${t('common.previous')}" ${this.currentPage === 0 ? 'disabled' : ''}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-              </button>
-              ${Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                let pageNum = i;
-                if (totalPages > 5) {
-                  if (this.currentPage <= 2) pageNum = i;
-                  else if (this.currentPage >= totalPages - 3) pageNum = totalPages - 5 + i;
-                  else pageNum = this.currentPage - 2 + i;
-                }
-                return `<button class="btn btn-${pageNum === this.currentPage ? 'primary' : 'ghost'} btn-sm" data-page="${pageNum}">${pageNum + 1}</button>`;
-              }).join('')}
-              <button type="button" class="btn btn-ghost btn-sm" id="btnNextPage" aria-label="${t('common.next')}" ${this.currentPage === totalPages - 1 ? 'disabled' : ''}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-            </div>
-          </div>
-        ` : ''}
+        <div class="card-footer" style="font-size:var(--text-sm);color:var(--color-text-muted);">
+          ${t('qb.title')}: ${this.filteredQuestions.length} / ${this.questions.length}
+        </div>
       </div>
     `;
+  }
+
+  /** One fixed-height row, extracted from the old paged innerHTML template. */
+  private getRowHTML(q: any): string {
+    return `
+      <tr data-id="${q.id}" style="height:${ROW_HEIGHT}px;" ${this.selectedIds.has(q.id) ? 'class="selected"' : ''}>
+        <td><input type="checkbox" class="form-check-input row-checkbox bulk-checkbox" aria-label="Pilih soal ${q.topicCode}" value="${q.id}" ${this.selectedIds.has(q.id) ? 'checked' : ''}></td>
+        <td>
+          <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(q.topicCode)};">${q.topicCode}</span>
+        </td>
+        <td style="max-width:400px;">
+          <div style="font-weight:var(--font-medium);">${q.stem.length > 100 ? q.stem.substring(0, 100) + '...' : q.stem}</div>
+          ${q.explanation ? `<div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px;">${q.explanation.substring(0, 80)}...</div>` : ''}
+        </td>
+        <td><span class="badge badge-difficulty-${q.difficulty}">${t('difficulty.' + q.difficulty)}</span></td>
+        <td>
+          <span class="badge badge-mastery-${q.statistics.masteryLevel}">${t('mastery.' + q.statistics.masteryLevel)}</span>
+          <span style="font-size:var(--text-xs);color:var(--color-text-muted);margin-left:var(--space-1);">${q.statistics.totalAttempts} percobaan</span>
+        </td>
+        <td>
+          ${q.flags.bookmarked ? '<span class="badge badge-warning" title="Bookmark">★</span>' : ''}
+          ${q.flags.needsReview ? '<span class="badge badge-info" title="Perlu Ulang">↻</span>' : ''}
+          ${q.flags.disputed ? '<span class="badge badge-danger" title="Disput">⚠</span>' : ''}
+        </td>
+        <td>
+          <div style="display:flex;gap:var(--space-1);">
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${q.id}" aria-label="${t('common.edit')}" title="${t('common.edit')}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="duplicate" data-id="${q.id}" aria-label="Duplikat soal" title="Duplikat">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${q.id}" aria-label="${t('common.delete')}" title="${t('common.delete')}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2 2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  private disposeVirtualizer(): void {
+    this.virtualCleanup?.();
+    this.virtualCleanup = null;
+    this.virtualizer = null;
+    this.scrollElement = null;
+    this.tbody = null;
+  }
+
+  /** Mount the list: full DOM for small banks, virtual window for large ones. */
+  private mountQuestionList(): void {
+    this.disposeVirtualizer();
+    const scrollElement = this.element?.querySelector<HTMLElement>('#questionsScroll') ?? null;
+    const tbody = this.element?.querySelector<HTMLTableSectionElement>('#questionsBody') ?? null;
+    if (!scrollElement || !tbody) return;
+    this.scrollElement = scrollElement;
+    this.tbody = tbody;
+
+    // Delegated listeners stay valid when rows are replaced as the user scrolls.
+    tbody.addEventListener('change', (event) => {
+      const target = event.target as HTMLInputElement;
+      if (!target.matches('.row-checkbox')) return;
+      if (target.checked) this.selectedIds.add(target.value);
+      else this.selectedIds.delete(target.value);
+      this.selectAll = this.selectedIds.size === this.filteredQuestions.length;
+      this.refreshView();
+    });
+    tbody.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
+      if (!button || !tbody.contains(button)) return;
+      const action = button.dataset.action;
+      const id = button.dataset.id;
+      if (action === 'edit') void this.editQuestion(id);
+      else if (action === 'duplicate') void this.duplicateQuestion(id!);
+      else if (action === 'delete') void this.deleteQuestion(id!);
+    });
+
+    if (this.filteredQuestions.length <= VIRTUALIZE_THRESHOLD) {
+      tbody.innerHTML = this.filteredQuestions.map((q) => this.getRowHTML(q)).join('');
+      return;
+    }
+
+    this.virtualizer = new Virtualizer<HTMLElement, HTMLElement>({
+      count: this.filteredQuestions.length,
+      getScrollElement: () => this.scrollElement,
+      estimateSize: () => ROW_HEIGHT,
+      overscan: OVERSCAN,
+      scrollToFn: elementScroll,
+      observeElementRect,
+      observeElementOffset,
+      onChange: () => this.renderVirtualRows(),
+    });
+    // The headless core expects the adapter to attach its observers on mount;
+    // _willUpdate() binds the scroll element (and therefore the rect observer).
+    this.virtualizer._willUpdate();
+    this.virtualCleanup = this.virtualizer._didMount();
+    this.renderVirtualRows();
+  }
+
+  /** Render just the visible window, bracketed by two spacer rows. */
+  private renderVirtualRows(): void {
+    const virtualizer = this.virtualizer;
+    const tbody = this.tbody;
+    if (!virtualizer || !tbody) return;
+    const items = virtualizer.getVirtualItems();
+    const totalSize = virtualizer.getTotalSize();
+    const leading = items.length ? items[0]!.start : 0;
+    const trailing = Math.max(0, totalSize - (items.length ? items[items.length - 1]!.end : 0));
+    const spacer = (height: number): string =>
+      height > 0
+        ? `<tr class="virtual-spacer" aria-hidden="true" style="height:${height}px;"><td colspan="7" style="padding:0;border:0;"></td></tr>`
+        : '';
+    tbody.innerHTML =
+      spacer(leading) + items.map((item) => this.getRowHTML(this.filteredQuestions[item.index])).join('') + spacer(trailing);
   }
 
   private getTrashCount(): number {
@@ -448,15 +520,8 @@ export class QuestionBankView {
       this.refreshView();
     });
 
-    this.element.querySelectorAll('.row-checkbox').forEach(cb => {
-      cb.addEventListener('change', (e) => {
-        const target = e.target as HTMLInputElement;
-        if (target.checked) this.selectedIds.add(target.value);
-        else this.selectedIds.delete(target.value);
-        this.selectAll = this.selectedIds.size === this.filteredQuestions.length;
-        this.refreshView();
-      });
-    });
+    // Row checkbox/action listeners are delegated on the stable tbody in
+    // mountQuestionList(), because rows are replaced as the user scrolls.
 
     // Clear selection
     this.element.querySelector('#btnClearSelection')?.addEventListener('click', () => {
@@ -472,40 +537,6 @@ export class QuestionBankView {
     this.element.querySelector('#btnBulkReview')?.addEventListener('click', () => this.bulkReview());
     this.element.querySelector('#btnBulkDelete')?.addEventListener('click', () => this.bulkDelete());
 
-    // Pagination
-    this.element.querySelector('#btnPrevPage')?.addEventListener('click', () => {
-      if (this.currentPage > 0) {
-        this.currentPage--;
-        this.refreshView();
-      }
-    });
-    this.element.querySelector('#btnNextPage')?.addEventListener('click', () => {
-      const totalPages = Math.ceil(this.filteredQuestions.length / this.pageSize);
-      if (this.currentPage < totalPages - 1) {
-        this.currentPage++;
-        this.refreshView();
-      }
-    });
-    this.element.querySelectorAll('[data-page]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        this.currentPage = parseInt(target.dataset.page!);
-        this.refreshView();
-      });
-    });
-
-    // Row actions
-    this.element.querySelectorAll('[data-action]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        const action = target.dataset.action;
-        const id = target.dataset.id;
-        if (action === 'edit') this.editQuestion(id!);
-        else if (action === 'duplicate') this.duplicateQuestion(id!);
-        else if (action === 'delete') this.deleteQuestion(id!);
-      });
-    });
-
     // Header actions
     this.element.querySelector('#btnAddQuestion')?.addEventListener('click', () => this.editQuestion());
     this.element.querySelector('#btnImport')?.addEventListener('click', () => navigate('import'));
@@ -514,12 +545,16 @@ export class QuestionBankView {
   }
 
   private refreshView(): void {
-    if (this.element) {
-      const scrollPos = window.scrollY;
-      this.element.innerHTML = this.getHTML();
-      this.bindEvents();
-      window.scrollTo(0, scrollPos);
-    }
+    if (!this.element) return;
+    // Preserve the table's scroll position unless a filter changed (in which
+    // case applyFilters() flags a reset to the top of the new result set).
+    const scrollTop = this.resetScrollOnRefresh ? 0 : (this.scrollElement?.scrollTop ?? 0);
+    this.resetScrollOnRefresh = false;
+    this.disposeVirtualizer();
+    this.element.innerHTML = this.getHTML();
+    this.bindEvents();
+    this.mountQuestionList();
+    if (this.scrollElement) this.scrollElement.scrollTop = scrollTop;
   }
 
   private async editQuestion(id?: string): Promise<void> {
@@ -531,7 +566,8 @@ export class QuestionBankView {
   }
 
   private async duplicateQuestion(id: string): Promise<void> {
-    const question = await import('../db/repositories/questions').then(m => m.questionsRepo.getById(id));
+    const { questionsRepo } = await import('../db/repositories/questions');
+    const question = await questionsRepo.getById(id);
     if (question) {
       const newQuestion = {
         ...question,
@@ -539,15 +575,16 @@ export class QuestionBankView {
         metadata: { ...question.metadata, createdAt: nowISO(), updatedAt: nowISO(), version: 1 },
         statistics: { totalAttempts: 0, correctAttempts: 0, avgTimeMs: 0, masteryLevel: 0 },
       };
-      await import('../db/repositories/questions').then(m => m.questionsRepo.add(newQuestion));
-      this.refreshView();
+      await questionsRepo.add(newQuestion);
+      await this.reloadAfterMutation();
     }
   }
 
   private async deleteQuestion(id: string): Promise<void> {
     if (confirm('Hapus soal ini?')) {
-      await import('../db/repositories/questions').then(m => m.questionsRepo.delete(id));
-      this.refreshView();
+      const { questionsRepo } = await import('../db/repositories/questions');
+      await questionsRepo.delete(id);
+      await this.reloadAfterMutation();
     }
   }
 
@@ -556,48 +593,58 @@ export class QuestionBankView {
     alert('Bulk tag - TODO');
   }
 
-  private bulkFlag(): void {
-    this.selectedIds.forEach(async id => {
-      const q = await import('../db/repositories/questions').then(m => m.questionsRepo.getById(id));
+  private async bulkFlag(): Promise<void> {
+    const { questionsRepo } = await import('../db/repositories/questions');
+    await Promise.all(Array.from(this.selectedIds, async (id) => {
+      const q = await questionsRepo.getById(id);
       if (q) {
         q.flags.bookmarked = true;
-        await import('../db/repositories/questions').then(m => m.questionsRepo.put(q));
+        await questionsRepo.put(q);
       }
-    });
-    this.refreshView();
+    }));
+    await this.reloadAfterMutation();
   }
 
-  private bulkUnflag(): void {
-    this.selectedIds.forEach(async id => {
-      const q = await import('../db/repositories/questions').then(m => m.questionsRepo.getById(id));
+  private async bulkUnflag(): Promise<void> {
+    const { questionsRepo } = await import('../db/repositories/questions');
+    await Promise.all(Array.from(this.selectedIds, async (id) => {
+      const q = await questionsRepo.getById(id);
       if (q) {
         q.flags.bookmarked = false;
         q.flags.needsReview = false;
         q.flags.disputed = false;
-        await import('../db/repositories/questions').then(m => m.questionsRepo.put(q));
+        await questionsRepo.put(q);
       }
-    });
-    this.refreshView();
+    }));
+    await this.reloadAfterMutation();
   }
 
-  private bulkReview(): void {
-    this.selectedIds.forEach(async id => {
-      const q = await import('../db/repositories/questions').then(m => m.questionsRepo.getById(id));
+  private async bulkReview(): Promise<void> {
+    const { questionsRepo } = await import('../db/repositories/questions');
+    await Promise.all(Array.from(this.selectedIds, async (id) => {
+      const q = await questionsRepo.getById(id);
       if (q) {
         q.flags.needsReview = true;
-        await import('../db/repositories/questions').then(m => m.questionsRepo.put(q));
+        await questionsRepo.put(q);
       }
-    });
-    this.refreshView();
+    }));
+    await this.reloadAfterMutation();
   }
 
   private async bulkDelete(): Promise<void> {
     if (confirm(`Hapus ${this.selectedIds.size} soal?`)) {
-      await import('../db/repositories/questions').then(m => m.questionsRepo.bulkDelete(Array.from(this.selectedIds)));
+      const { questionsRepo } = await import('../db/repositories/questions');
+      await questionsRepo.bulkDelete(Array.from(this.selectedIds));
       this.selectedIds.clear();
       this.selectAll = false;
-      this.refreshView();
+      await this.reloadAfterMutation();
     }
+  }
+
+  /** Re-read the source data, invalidate the memoized selector, re-render. */
+  private async reloadAfterMutation(): Promise<void> {
+    await this.loadQuestions();
+    if (this.element) this.refreshView();
   }
 }
 

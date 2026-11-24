@@ -7,7 +7,9 @@ export default defineConfig({
   publicDir: 'public',
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // Source maps are development-only: they are the largest files in dist/
+    // and are not useful to end users of the offline PWA.
+    sourcemap: false,
     minify: 'esbuild',
     target: 'es2022',
     modulePreload: { polyfill: false },
@@ -16,7 +18,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vendor-db': ['dexie'],
-          'vendor-charts': ['chart.js'],
           'vendor-utils': ['date-fns', 'mitt', 'zod'],
           'vendor-editor': ['easymde'],
           'vendor-search': ['fuse.js'],
