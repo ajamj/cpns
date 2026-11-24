@@ -107,7 +107,7 @@ export class MockExamView {
                 ${[1, 2, 3].map(d => `
                   <div style="display:flex;align-items:center;gap:var(--space-2);">
                     <span style="min-width:60px;">${t('difficulty.' + d)}</span>
-                    <input type="number" step="5" min="0" max="100" value="${d===2?50:d===1?30:20}" data-difficulty="${d}" class="form-input" style="width:80px;">
+                    <input type="number" step="5" min="0" max="100" value="${d===2?50:d===1?30:20}" data-difficulty="${d}" aria-label="${t('mock.difficultyMix')} — ${t('difficulty.' + d)}" class="form-input" style="width:80px;">
                     <span>%</span>
                   </div>
                 `).join('')}

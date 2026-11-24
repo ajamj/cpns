@@ -3,6 +3,7 @@ import { settingsRepo } from '../db/repositories/settings';
 import { backupRepo } from '../db/repositories/backup';
 import { loadKisiKisi, getAllTopicCodes } from '../features/kisi-kisi/registry';
 import { navigate, t, setLocale, getLocale } from '../core/i18n';
+import { applyAccessibilitySettings } from '../core/a11y';
 import { eventBus } from '../core/events';
 import { APP_CONFIG } from '../core/config';
 import { downloadJSON } from '../core/utils';
@@ -86,9 +87,9 @@ export class SettingsView {
             <fieldset>
               <legend class="form-label" style="font-size:var(--text-lg);font-weight:var(--font-semibold);margin-bottom:var(--space-4);">${t('settings.theme')}</legend>
               <div class="btn-group" role="radiogroup" style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
-                ${['light', 'dark', 'system'].map(t => `
-                  <button type="button" class="btn ${theme === t ? 'btn-primary' : 'btn-secondary'}" data-theme="${t}" style="flex:1;min-width:100px;">
-                    ${t === 'light' ? '☀️' : t === 'dark' ? '🌙' : '💻'} ${t('settings.theme.' + t)}
+                ${['light', 'dark', 'system'].map(themeOption => `
+                  <button type="button" class="btn ${theme === themeOption ? 'btn-primary' : 'btn-secondary'}" data-theme="${themeOption}" style="flex:1;min-width:100px;">
+                    ${themeOption === 'light' ? '☀️' : themeOption === 'dark' ? '🌙' : '💻'} ${t('settings.theme.' + themeOption)}
                   </button>
                 `).join('')}
               </div>
@@ -114,7 +115,7 @@ export class SettingsView {
                   return `
                     <div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2);background:var(--color-bg);border-radius:var(--radius-md);">
                       <span style="font-size:var(--text-xs);font-weight:var(--font-medium);color:var(--color-text-muted);min-width:60px;">${code}</span>
-                      <input type="number" step="0.1" min="0.1" max="5" value="${topicWeights[code] || 1}" data-weight="${code}" class="form-input" style="width:80px;font-size:var(--text-sm);padding:var(--space-1) var(--space-2);">
+                      <input type="number" step="0.1" min="0.1" max="5" value="${topicWeights[code] || 1}" data-weight="${code}" aria-label="${t('settings.topicWeights')} ${code}" class="form-input" style="width:80px;font-size:var(--text-sm);padding:var(--space-1) var(--space-2);">
                     </div>
                   `;
                 }).join('')}
@@ -130,6 +131,7 @@ export class SettingsView {
             </fieldset>
           </div>
         </div>
+      </div>
 
       <!-- Mock Exam Tab -->
       <div class="tab-panel" id="panel-mockExam" role="tabpanel" aria-labelledby="tab-mockExam" data-tab-panel="mockExam" style="display:none;">
@@ -163,6 +165,7 @@ export class SettingsView {
             </fieldset>
           </div>
         </div>
+      </div>
 
       <!-- Flashcards Tab -->
       <div class="tab-panel" id="panel-flashcards" role="tabpanel" aria-labelledby="tab-flashcards" data-tab-panel="flashcards" style="display:none;">
@@ -203,6 +206,7 @@ export class SettingsView {
             </fieldset>
           </div>
         </div>
+      </div>
 
       <!-- Data Tab -->
       <div class="tab-panel" id="panel-data" role="tabpanel" aria-labelledby="tab-data" data-tab-panel="data" style="display:none;">
@@ -245,6 +249,7 @@ export class SettingsView {
             </fieldset>
           </div>
         </div>
+      </div>
 
       <!-- Accessibility Tab -->
       <div class="tab-panel" id="panel-accessibility" role="tabpanel" aria-labelledby="tab-accessibility" data-tab-panel="accessibility" style="display:none;">
@@ -267,6 +272,7 @@ export class SettingsView {
             </fieldset>
           </div>
         </div>
+      </div>
 
       <!-- About Tab -->
       <div class="tab-panel" id="panel-about" role="tabpanel" aria-labelledby="tab-about" data-tab-panel="about" style="display:none;">
@@ -285,7 +291,7 @@ export class SettingsView {
             <hr style="margin:var(--space-6) 0;border-color:var(--color-border);">
             <div style="font-size:var(--text-sm);color:var(--color-text-muted);">
               <p><strong>Kisi-Kisi:</strong> BMKG Pengumuman No. B/KP.01.00/016/SU/XI/2024 Lampiran I</p>
-              <p><strong>21 Topik:</b> 9 Kemampuan Umum + 12 Kemampuan Khusus</p>
+              <p><strong>21 Topik:</strong> 9 Kemampuan Umum + 12 Kemampuan Khusus</p>
               <p><strong>Teknologi:</b> Vanilla TypeScript, Vite, Dexie.js, Workbox, Chart.js</p>
               <p><strong>Lisensi:</b> MIT</p>
             </div>
@@ -397,13 +403,13 @@ export class SettingsView {
       settingsRepo.set('autoBackupIntervalDays', parseInt(target.value));
     });
 
-    // Accessibility
+    // Accessibility — the shared helper owns the <html data-*> projection so
+    // the live preview and the persisted value can never diverge.
     this.element.querySelector('#fontScale')?.addEventListener('input', (e) => {
       const target = e.target as HTMLInputElement;
-      const value = parseFloat(target.value);
-      document.documentElement.style.fontSize = `${16 * value}px`;
-      document.documentElement.setAttribute('data-font-scale', value.toString());
-      this.element!.querySelector('#fontScaleValue')!.textContent = `${value}x`;
+      const applied = applyAccessibilitySettings({ fontScale: parseFloat(target.value) });
+      const label = this.element!.querySelector('#fontScaleValue');
+      if (label) label.textContent = `${applied.fontScale}x`;
     });
     this.element.querySelector('#fontScale')?.addEventListener('change', (e) => {
       const target = e.target as HTMLInputElement;
@@ -411,13 +417,13 @@ export class SettingsView {
     });
     this.element.querySelector('#reducedMotion')?.addEventListener('change', (e) => {
       const target = e.target as HTMLInputElement;
+      applyAccessibilitySettings({ reducedMotion: target.checked });
       settingsRepo.set('reducedMotion', target.checked);
-      document.documentElement.setAttribute('data-reduced-motion', target.checked.toString());
     });
     this.element.querySelector('#highContrast')?.addEventListener('change', (e) => {
       const target = e.target as HTMLInputElement;
+      applyAccessibilitySettings({ highContrast: target.checked });
       settingsRepo.set('highContrast', target.checked);
-      document.documentElement.setAttribute('data-high-contrast', target.checked.toString());
     });
 
     // Notifications

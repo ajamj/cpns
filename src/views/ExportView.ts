@@ -3,7 +3,7 @@ import { backupRepo } from '../db/repositories/backup';
 import { questionsRepo } from '../db/repositories/questions';
 import { sessionsRepo } from '../db/repositories/sessions';
 import { flashcardsRepo } from '../db/repositories/flashcards';
-import { loadKisiKisi } from '../features/kisi-kisi/registry';
+import { getKisiKisiSync } from '../features/kisi-kisi/registry';
 import { navigate, t } from '../core/i18n';
 import { showToast } from '../core/app-utils';
 import { downloadJSON } from '../core/utils';
@@ -20,8 +20,8 @@ export class ExportView {
   }
 
   private getTopicOptionsHTML(): string {
-    const { topics } = loadKisiKisi();
-    return topics.map(t => `<option value="${t.code}">${t.code} - ${t.title}</option>`).join('');
+    const topics = getKisiKisiSync();
+    return topics.map(topic => `<option value="${topic.code}">${topic.code} - ${topic.title}</option>`).join('');
   }
 
   private getHTML(): string {
@@ -76,7 +76,7 @@ export class ExportView {
               <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;">
                 <select id="exportTopicFilter" class="form-select" style="min-width:200px;">
                   <option value="">${t('filter.all')}</option>
-                  ${loadKisiKisi().topics.map(t => `<option value="${t.code}">${t.code} - ${t.title}</option>`).join('')}
+                  ${getKisiKisiSync().map(topic => `<option value="${topic.code}">${topic.code} - ${topic.title}</option>`).join('')}
                 </select>
                 <select id="exportDifficultyFilter" class="form-select" style="min-width:150px;">
                   <option value="">${t('filter.all')}</option>

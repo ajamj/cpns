@@ -1,6 +1,7 @@
 // Hash-based router for SPA
 import type { RouteParams } from '../shared/types';
 import { eventBus } from './events';
+import { applyAccessibilitySettings } from './a11y';
 
 export type ViewName = 
   | 'dashboard'
@@ -26,6 +27,9 @@ const routeMap: Record<string, ViewName> = {
   '': 'dashboard',
   'dashboard': 'dashboard',
   'questions': 'question-bank',
+  // Views navigate with the view name (`#question-bank`); keep the legacy
+  // `#questions` alias above working too.
+  'question-bank': 'question-bank',
   'practice': 'practice',
   'mock-exam': 'mock-exam',
   'flashcards': 'flashcards',
@@ -130,6 +134,9 @@ function announceRoute(route: Route): void {
 }
 
 function notifyHandlers(route: Route): void {
+  // WCAG preferences must be in place before the new view's DOM is created so
+  // CSS sees the correct font scale / motion / contrast tokens on first paint.
+  applyAccessibilitySettings();
   handlers.forEach(h => h(route));
   announceRoute(route);
 }

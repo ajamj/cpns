@@ -6,7 +6,7 @@ import { navigate, t } from '../core/i18n';
 import { eventBus } from '../core/events';
 import { generateId, nowISO, downloadJSON, parseCSV, toCSV } from '../core/utils';
 import type { Question, QuestionFilter } from '../shared/types';
-import * as Fuse from 'fuse.js';
+import Fuse from 'fuse.js';
 
 export class QuestionBankView {
   private params: Record<string, string>;
@@ -204,14 +204,14 @@ export class QuestionBankView {
               </div>
             </div>
 
-            <select id="difficultyFilter" class="form-select" style="min-width:150px;">
+            <select id="difficultyFilter" class="form-select" aria-label="${t('filter.difficulty')}" style="min-width:150px;">
               <option value="">${t('filter.all')}</option>
               <option value="1" ${this.filter.difficulty === 1 ? 'selected' : ''}>${t('difficulty.1')}</option>
               <option value="2" ${this.filter.difficulty === 2 ? 'selected' : ''}>${t('difficulty.2')}</option>
               <option value="3" ${this.filter.difficulty === 3 ? 'selected' : ''}>${t('difficulty.3')}</option>
             </select>
 
-            <select id="masteryFilter" class="form-select" style="min-width:150px;" multiple>
+            <select id="masteryFilter" class="form-select" aria-label="${t('filter.mastery')}" style="min-width:150px;" multiple>
               <option value="">${t('filter.all')}</option>
               <option value="0" ${this.filter.masteryLevels?.includes(0) ? 'selected' : ''}>${t('mastery.0')}</option>
               <option value="1" ${this.filter.masteryLevels?.includes(1) ? 'selected' : ''}>${t('mastery.1')}</option>
@@ -219,7 +219,7 @@ export class QuestionBankView {
               <option value="3" ${this.filter.masteryLevels?.includes(3) ? 'selected' : ''}>${t('mastery.3')}</option>
             </select>
 
-            <select id="flagsFilter" class="form-select" style="min-width:150px;" multiple>
+            <select id="flagsFilter" class="form-select" aria-label="${t('filter.flags')}" style="min-width:150px;" multiple>
               <option value="">${t('filter.flags')}</option>
               <option value="bookmarked" ${this.filter.flags?.bookmarked ? 'selected' : ''}>${t('filter.bookmarked')}</option>
               <option value="needsReview" ${this.filter.flags?.needsReview ? 'selected' : ''}>${t('filter.needsReview')}</option>

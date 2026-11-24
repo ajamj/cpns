@@ -226,15 +226,77 @@
   --subdomain-default: #cbd5e1;
 }
 
-/* High Contrast Mode */
-[data-high-contrast="true"] {
-  --color-border: currentColor;
-  --color-focus: currentColor;
-  --shadow-md: 0 0 0 2px currentColor;
-  --shadow-lg: 0 0 0 3px currentColor;
+/* --------------------------------------------------------------------------
+   Runtime accessibility preferences
+   The settings are projected onto <html data-*> by src/core/a11y.ts. These
+   blocks sit after both theme blocks so a user toggle always wins, including
+   when the OS prefers dark mode.
+   -------------------------------------------------------------------------- */
+
+/* High contrast: black background, white text, yellow accents (>= 7:1 for
+   every foreground/background pair used below). */
+/* :root matches the specificity of the OS-dark `:root:not([data-theme=light])`
+   block above; being later in the cascade, the user toggle wins. */
+:root[data-high-contrast="true"] {
+  color-scheme: dark;
+  --color-bg: #000000;
+  --color-bg-elevated: #000000;
+  --color-bg-hover: #1a1a1a;
+  --color-bg-active: #333333;
+  --color-text: #ffffff;
+  --color-text-muted: #ffffff;
+  --color-text-light: #ffffff;
+  --color-primary: #ffff00;
+  --color-primary-hover: #ffff66;
+  --color-primary-light: #000000;
+  --color-secondary: #ffff00;
+  --color-secondary-hover: #ffff66;
+  --color-success: #ffff00;
+  --color-success-light: #000000;
+  --color-warning: #ffff00;
+  --color-warning-light: #000000;
+  --color-danger: #ffff00;
+  --color-danger-light: #000000;
+  --color-info: #ffff00;
+  --color-info-light: #000000;
+  --color-border: #ffffff;
+  --color-border-strong: #ffffff;
+  --color-border-focus: #ffff00;
+  --color-focus: #ffff00;
+  --color-overlay: rgba(0, 0, 0, 0.9);
+  --color-on-primary: #000000;
+  --color-on-success: #000000;
+  --color-on-warning: #000000;
+  --color-on-danger: #000000;
+  --color-on-info: #000000;
+  --subdomain-meteorology: #ffff00;
+  --subdomain-climatology: #ffffff;
+  --subdomain-geophysics: #ffff00;
+  --subdomain-geology: #ffffff;
+  --subdomain-instrumentation: #ffff00;
+  --subdomain-default: #ffffff;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 0 0 1px #ffff00;
+  --shadow-lg: 0 0 0 2px #ffff00;
+  --shadow-xl: 0 0 0 2px #ffffff;
 }
 
-/* Reduced Motion */
+/* Static badge colours are hardcoded elsewhere; inherit the high-contrast
+   tokens there as well so no low-contrast pair survives the toggle. */
+html[data-high-contrast="true"] .badge-difficulty-1,
+html[data-high-contrast="true"] .badge-difficulty-2,
+html[data-high-contrast="true"] .badge-difficulty-3,
+html[data-high-contrast="true"] .badge-mastery-0,
+html[data-high-contrast="true"] .badge-mastery-1,
+html[data-high-contrast="true"] .badge-mastery-2,
+html[data-high-contrast="true"] .badge-mastery-3 {
+  background: var(--color-bg-elevated);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+}
+
+/* Reduced motion: either the user's toggle OR the OS media query is enough. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -246,19 +308,57 @@
   }
 }
 
-/* Font Scaling */
-html {
-  font-size: 16px;
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
-[data-font-scale="0.8"] { font-size: 12.8px; }
-[data-font-scale="0.9"] { font-size: 14.4px; }
-[data-font-scale="1.0"] { font-size: 16px; }
-[data-font-scale="1.1"] { font-size: 17.6px; }
-[data-font-scale="1.2"] { font-size: 19.2px; }
-[data-font-scale="1.3"] { font-size: 20.8px; }
-[data-font-scale="1.4"] { font-size: 22.4px; }
-[data-font-scale="1.5"] { font-size: 24px; }
+/* Font scaling: 80%–150% in 10% steps. All type tokens are rem-based, so
+   scaling the root font size scales the entire interface consistently. */
+html {
+  --font-scale-multiplier: 1;
+  font-size: calc(16px * var(--font-scale-multiplier));
+}
+
+html[data-font-scale="0.8"] { --font-scale-multiplier: 0.8; }
+html[data-font-scale="0.9"] { --font-scale-multiplier: 0.9; }
+html[data-font-scale="1.0"] { --font-scale-multiplier: 1; }
+html[data-font-scale="1.1"] { --font-scale-multiplier: 1.1; }
+html[data-font-scale="1.2"] { --font-scale-multiplier: 1.2; }
+html[data-font-scale="1.3"] { --font-scale-multiplier: 1.3; }
+html[data-font-scale="1.4"] { --font-scale-multiplier: 1.4; }
+html[data-font-scale="1.5"] { --font-scale-multiplier: 1.5; }
+
+/* OS-level forced-colors mode replaces author colours; keep structural
+   borders and the focus ring explicit so controls remain distinguishable. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  .card,
+  .btn,
+  .nav-tab,
+  .tab,
+  .badge,
+  .form-input,
+  .form-select,
+  .form-textarea,
+  .table-container,
+  .modal-content {
+    border: 1px solid CanvasText;
+  }
+
+  .nav-tab.active,
+  .tab.active {
+    border-bottom-color: Highlight;
+  }
+}
 
 /* Reset */
 *, *::before, *::after {

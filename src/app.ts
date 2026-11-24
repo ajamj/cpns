@@ -1,6 +1,7 @@
 // Main Application Entry Point
 import { initRouter, navigate, onRouteChange, getCurrentRoute } from './core/router';
 import { initLocale, setLocale, getLocale, t } from './core/i18n';
+import { applyAccessibilitySettings } from './core/a11y';
 import { settingsRepo } from './db/repositories/settings';
 import { backupRepo } from './db/repositories/backup';
 import { db } from './db/schema';
@@ -68,6 +69,15 @@ async function importSeedQuestionsIfEmpty(): Promise<void> {
 async function initApp(): Promise<void> {
   // Initialize locale
   initLocale();
+
+  // Project the persisted WCAG preferences (font scale, reduced motion,
+  // high contrast) onto <html> before the first view is rendered.
+  applyAccessibilitySettings();
+  eventBus.on('settings:changed', ({ key }) => {
+    if (key === 'fontScale' || key === 'reducedMotion' || key === 'highContrast') {
+      applyAccessibilitySettings();
+    }
+  });
   
   // Initialize database
   try {
@@ -145,6 +155,10 @@ async function initApp(): Promise<void> {
 
 // Render route
 function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
+  // Re-read preferences before every render: a backup restore or a settings
+  // change may have replaced them since the previous view was mounted.
+  applyAccessibilitySettings();
+
   // The router outlet is the <main> landmark so skip links and screen readers
   // land directly on the view content.
   const app = document.getElementById('main-content') ?? document.getElementById('app');
