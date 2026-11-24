@@ -3,7 +3,8 @@
 // Usage: node scripts/serve.mjs dist 4173
 
 import { createServer } from 'node:http';
-import { createReadStream, promises as fs } from 'node:fs';
+import { promises as fs } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 
 const ROOT = path.resolve(process.cwd(), process.argv[2] || 'dist');
@@ -49,6 +50,21 @@ async function resolveFile(urlPath) {
   return null;
 }
 
+function shouldCompress(contentType) {
+  return /^(text\/|application\/(javascript|json)|image\/svg\+xml)/.test(contentType);
+}
+
+function cacheControlFor(relativePath) {
+  const name = path.basename(relativePath);
+  // Hashed build assets are immutable; the SW and the app shell must stay fresh.
+  if (name.startsWith('sw')) return 'no-cache, no-store, must-revalidate';
+  if (relativePath.startsWith('assets/') || /^workbox-[\w-]+\.js$/.test(name)) {
+    return 'public, max-age=31536000, immutable';
+  }
+  if (/\.(html|json)$/.test(name)) return 'no-cache';
+  return 'public, max-age=3600';
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://localhost');
   const filePath = await resolveFile(url.pathname);
@@ -60,23 +76,33 @@ const server = createServer(async (req, res) => {
   }
 
   const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
   const headers = {
-    'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+    'Content-Type': contentType,
     'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': cacheControlFor(path.relative(ROOT, filePath).split(path.sep).join('/')),
+    Vary: 'Accept-Encoding',
   };
 
   // The service worker must never be served stale while developing.
   if (path.basename(filePath).startsWith('sw')) {
-    headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
     headers['Service-Worker-Allowed'] = '/';
   }
+
+  const acceptsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+  let body = await fs.readFile(filePath);
+  if (acceptsGzip && shouldCompress(contentType)) {
+    body = gzipSync(body);
+    headers['Content-Encoding'] = 'gzip';
+  }
+  headers['Content-Length'] = body.length;
 
   res.writeHead(200, headers);
   if (req.method === 'HEAD') {
     res.end();
     return;
   }
-  createReadStream(filePath).pipe(res);
+  res.end(body);
 });
 
 server.listen(PORT, '127.0.0.1', () => {

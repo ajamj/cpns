@@ -21,7 +21,13 @@ Rilis pertama CPNS BMKG SKB Prep: aplikasi PWA offline untuk persiapan SKB CPNS 
 
 - Aset font eksternal dihapus; seluruh aset aplikasi disajikan dari origin yang sama agar tidak ada permintaan jaringan otomatis ke pihak ketiga.
 - Source map tidak disertakan dalam hasil build produksi.
-- Total `dist/` terukur **143,47 KiB gzipped** dari 32 berkas, di bawah anggaran 5 MiB (`npm run check:size`).
+- Total `dist/` terukur **145,83 KiB gzipped** dari 34 berkas, di bawah anggaran 5 MiB (`npm run check:size`).
+- Gerbang Lighthouse otomatis (`npm run check:lighthouse`) ditambahkan untuk desktop dan mobile dengan ambang Performance ≥90, Accessibility ≥95, Best Practices ≥90, dan PWA ≥90. Hasil terakhir pada host pengembangan bersama: desktop **88/100/100/100**, mobile **75/100/100/100**; skor performa belum memenuhi ambang karena mesin bersama yang sangat sarat, sehingga gerbang masih merah dan harus dijalankan ulang pada runner bersih sebelum tag rilis. Semua percobaan tercatat di `reports/lighthouse.json` (kategori tidak dinonaktifkan).
+
+### Fixed
+
+- Aset teks dari `npm run serve` kini dikirim dengan gzip dan header cache yang benar untuk aset hash; *shell* awal dirender dari HTML statis agar first paint tidak menunggu bundel JS.
+- Impor 42 soal contoh saat first run dipindahkan ke Web Worker, sehingga penulisan IndexedDB tidak memblokir *main thread* (dengan fallback di *main thread* bila worker tidak tersedia).
 
 ### Security
 

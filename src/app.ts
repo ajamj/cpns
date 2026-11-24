@@ -9,6 +9,7 @@ import { loadKisiKisi } from './features/kisi-kisi/registry';
 import { eventBus } from './core/events';
 import { APP_CONFIG } from './core/config';
 import { setShowToast } from './core/app-utils';
+import type { Question } from './shared/types';
 import { initModalFocusManagement, restoreFocus } from './core/modal';
 import {
   initPwaLifecycle,
@@ -47,6 +48,33 @@ interface BeforeInstallPromptEvent extends Event {
 let currentView: HTMLElement | null = null;
 let installPromptEvent: BeforeInstallPromptEvent | null = null;
 
+/** Ask the worker to import the seed questions; false means use the fallback. */
+function seedFromWorker(): Promise<boolean> {
+  return new Promise((resolve) => {
+    let worker: Worker;
+    try {
+      // Vite bundles this as a separate hashed chunk that the SW precaches.
+      worker = new Worker(new URL('./workers/seed-worker.ts', import.meta.url), { type: 'module' });
+    } catch {
+      resolve(false);
+      return;
+    }
+
+    let settled = false;
+    const finish = (success: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      worker.terminate();
+      resolve(success);
+    };
+    const timer = setTimeout(() => finish(false), 8000);
+    worker.onmessage = (event: MessageEvent<{ type: string }>) => finish(event.data.type === 'done');
+    worker.onerror = () => finish(false);
+    worker.postMessage({ type: 'seed' });
+  });
+}
+
 // Auto-import seed questions on first run
 async function importSeedQuestionsIfEmpty(): Promise<void> {
   try {
@@ -54,16 +82,17 @@ async function importSeedQuestionsIfEmpty(): Promise<void> {
     const count = await questionsRepo.getTotalCount();
     if (count === 0) {
       console.log('Database empty, importing seed questions...');
+      if (await seedFromWorker()) {
+        console.log('Seed questions imported in background worker');
+        return;
+      }
+
+      // Fallback for runtimes without module workers: the database is empty,
+      // so bulkAdd is equivalent to a restore of the (empty) other seed tables.
       const response = await fetch('/seed-questions.json');
       const data = await response.json();
       if (data.data?.questions?.length) {
-        const { backupRepo } = await import('@db/repositories/backup');
-        await backupRepo.restoreBackup({
-          schemaVersion: 1,
-          exportedAt: new Date().toISOString(),
-          appVersion: '1.0.0',
-          data: data.data
-        }, { mergeStrategy: 'smart', restoreSettings: false });
+        await db.questions.bulkAdd(data.data.questions as Question[]);
         console.log(`Imported ${data.data.questions.length} seed questions`);
       }
     }
@@ -187,6 +216,8 @@ function renderRoute(route: ReturnType<typeof getCurrentRoute>): void {
   // land directly on the view content.
   const app = document.getElementById('main-content') ?? document.getElementById('app');
   if (!app) return;
+  // The static boot shell is only there to paint before this bundle runs.
+  document.getElementById('boot-splash')?.remove();
   const token = ++renderToken;
   
   // Clean up previous view

@@ -1,0 +1,1444 @@
+{
+  "generatedAt": "2026-11-24T04:07:54.287Z",
+  "url": "http://127.0.0.1:4173/",
+  "thresholds": {
+    "performance": 90,
+    "accessibility": 95,
+    "best-practices": 90,
+    "pwa": 90
+  },
+  "attemptsPerMode": 5,
+  "passed": false,
+  "violations": [
+    "desktop: performance 88 < 90",
+    "mobile: performance 75 < 90"
+  ],
+  "runs": {
+    "desktop": {
+      "lighthouseVersion": "11.7.1",
+      "fetchTime": "2026-11-24T04:04:15.208Z",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+      "scores": {
+        "performance": 88,
+        "accessibility": 100,
+        "best-practices": 100,
+        "pwa": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "displayValue": "0.6 s",
+          "numericValue": 585.3188749999999
+        },
+        "largest-contentful-paint": {
+          "displayValue": "0.8 s",
+          "numericValue": 815.198125
+        },
+        "total-blocking-time": {
+          "displayValue": "260 ms",
+          "numericValue": 260.62075000000004
+        },
+        "cumulative-layout-shift": {
+          "displayValue": "0",
+          "numericValue": 0
+        },
+        "speed-index": {
+          "displayValue": "1.4 s",
+          "numericValue": 1441.2647294072663
+        }
+      },
+      "failures": [
+        {
+          "category": "performance",
+          "id": "first-contentful-paint",
+          "title": "First Contentful Paint",
+          "score": 0.99,
+          "displayValue": "0.6 s",
+          "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+        },
+        {
+          "category": "performance",
+          "id": "largest-contentful-paint",
+          "title": "Largest Contentful Paint",
+          "score": 0.98,
+          "displayValue": "0.8 s",
+          "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+        },
+        {
+          "category": "performance",
+          "id": "total-blocking-time",
+          "title": "Total Blocking Time",
+          "score": 0.67,
+          "displayValue": "260 ms",
+          "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+        },
+        {
+          "category": "performance",
+          "id": "speed-index",
+          "title": "Speed Index",
+          "score": 0.85,
+          "displayValue": "1.4 s",
+          "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+        },
+        {
+          "category": "performance",
+          "id": "interactive",
+          "title": "Time to Interactive",
+          "score": 0.99,
+          "displayValue": "1.5 s",
+          "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+        },
+        {
+          "category": "performance",
+          "id": "max-potential-fid",
+          "title": "Max Potential First Input Delay",
+          "score": 0.53,
+          "displayValue": "240 ms",
+          "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+        },
+        {
+          "category": "performance",
+          "id": "first-meaningful-paint",
+          "title": "First Meaningful Paint",
+          "score": 0.98,
+          "displayValue": "0.7 s",
+          "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+        },
+        {
+          "category": "performance",
+          "id": "render-blocking-resources",
+          "title": "Eliminate render-blocking resources",
+          "score": 0.5,
+          "displayValue": "Potential savings of 10 ms",
+          "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+        },
+        {
+          "category": "performance",
+          "id": "unused-javascript",
+          "title": "Reduce unused JavaScript",
+          "score": 0,
+          "displayValue": "Potential savings of 25 KiB",
+          "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+        },
+        {
+          "category": "performance",
+          "id": "mainthread-work-breakdown",
+          "title": "Minimize main-thread work",
+          "score": 0,
+          "displayValue": "2.3 s",
+          "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+        }
+      ]
+    },
+    "mobile": {
+      "lighthouseVersion": "11.7.1",
+      "fetchTime": "2026-11-24T04:07:33.902Z",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+      "scores": {
+        "performance": 75,
+        "accessibility": 100,
+        "best-practices": 100,
+        "pwa": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "displayValue": "1.8 s",
+          "numericValue": 1801.46875
+        },
+        "largest-contentful-paint": {
+          "displayValue": "2.3 s",
+          "numericValue": 2300.78125
+        },
+        "total-blocking-time": {
+          "displayValue": "990 ms",
+          "numericValue": 993.78125
+        },
+        "cumulative-layout-shift": {
+          "displayValue": "0",
+          "numericValue": 0
+        },
+        "speed-index": {
+          "displayValue": "3.0 s",
+          "numericValue": 3049.0552297389704
+        }
+      },
+      "failures": [
+        {
+          "category": "performance",
+          "id": "first-contentful-paint",
+          "title": "First Contentful Paint",
+          "score": 0.89,
+          "displayValue": "1.8 s",
+          "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+        },
+        {
+          "category": "performance",
+          "id": "largest-contentful-paint",
+          "title": "Largest Contentful Paint",
+          "score": 0.93,
+          "displayValue": "2.3 s",
+          "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+        },
+        {
+          "category": "performance",
+          "id": "total-blocking-time",
+          "title": "Total Blocking Time",
+          "score": 0.27,
+          "displayValue": "990 ms",
+          "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+        },
+        {
+          "category": "performance",
+          "id": "speed-index",
+          "title": "Speed Index",
+          "score": 0.93,
+          "displayValue": "3.0 s",
+          "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+        },
+        {
+          "category": "performance",
+          "id": "interactive",
+          "title": "Time to Interactive",
+          "score": 0.92,
+          "displayValue": "3.5 s",
+          "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+        },
+        {
+          "category": "performance",
+          "id": "max-potential-fid",
+          "title": "Max Potential First Input Delay",
+          "score": 0.08,
+          "displayValue": "500 ms",
+          "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+        },
+        {
+          "category": "performance",
+          "id": "first-meaningful-paint",
+          "title": "First Meaningful Paint",
+          "score": 0.97,
+          "displayValue": "1.8 s",
+          "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+        },
+        {
+          "category": "performance",
+          "id": "render-blocking-resources",
+          "title": "Eliminate render-blocking resources",
+          "score": 0.5,
+          "displayValue": "Potential savings of 10 ms",
+          "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+        },
+        {
+          "category": "performance",
+          "id": "unused-javascript",
+          "title": "Reduce unused JavaScript",
+          "score": 0,
+          "displayValue": "Potential savings of 25 KiB",
+          "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+        },
+        {
+          "category": "performance",
+          "id": "bootup-time",
+          "title": "Reduce JavaScript execution time",
+          "score": 0,
+          "displayValue": "1.3 s",
+          "description": "Consider reducing the time spent parsing, compiling, and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to reduce Javascript execution time](https://developer.chrome.com/docs/lighthouse/performance/bootup-time/)."
+        },
+        {
+          "category": "performance",
+          "id": "mainthread-work-breakdown",
+          "title": "Minimize main-thread work",
+          "score": 0,
+          "displayValue": "5.4 s",
+          "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+        }
+      ]
+    }
+  },
+  "allAttempts": {
+    "desktop": [
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:00:42.054Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 67,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "0.9 s",
+            "numericValue": 882.81
+          },
+          "largest-contentful-paint": {
+            "displayValue": "1.3 s",
+            "numericValue": 1269.3937499999997
+          },
+          "total-blocking-time": {
+            "displayValue": "610 ms",
+            "numericValue": 605.1424999999999
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "2.3 s",
+            "numericValue": 2310.7908121884634
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.92,
+            "displayValue": "0.9 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.88,
+            "displayValue": "1.3 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.2,
+            "displayValue": "610 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.49,
+            "displayValue": "2.3 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.91,
+            "displayValue": "2.4 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.21,
+            "displayValue": "370 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.92,
+            "displayValue": "0.9 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 0 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "3.5 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:01:27.269Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 60,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "1.2 s",
+            "numericValue": 1221.67025
+          },
+          "largest-contentful-paint": {
+            "displayValue": "1.5 s",
+            "numericValue": 1470.8404999999998
+          },
+          "total-blocking-time": {
+            "displayValue": "710 ms",
+            "numericValue": 709.52125
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "2.9 s",
+            "numericValue": 2883.176368122927
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.73,
+            "displayValue": "1.2 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.81,
+            "displayValue": "1.5 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.14,
+            "displayValue": "710 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.3,
+            "displayValue": "2.9 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.84,
+            "displayValue": "2.8 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.36,
+            "displayValue": "300 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.73,
+            "displayValue": "1.2 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 0 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "3.9 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:02:41.254Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 67,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "1.1 s",
+            "numericValue": 1126.3287499999997
+          },
+          "largest-contentful-paint": {
+            "displayValue": "1.7 s",
+            "numericValue": 1725.1399999999996
+          },
+          "total-blocking-time": {
+            "displayValue": "440 ms",
+            "numericValue": 441.5
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "2.2 s",
+            "numericValue": 2188.075472754233
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.79,
+            "displayValue": "1.1 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.72,
+            "displayValue": "1.7 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.36,
+            "displayValue": "440 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.54,
+            "displayValue": "2.2 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.93,
+            "displayValue": "2.2 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.68,
+            "displayValue": "200 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.79,
+            "displayValue": "1.1 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0,
+            "displayValue": "Potential savings of 60 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "3.0 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:03:19.236Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 52,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "1.3 s",
+            "numericValue": 1290.6006500000003
+          },
+          "largest-contentful-paint": {
+            "displayValue": "2.0 s",
+            "numericValue": 2027.8456000000003
+          },
+          "total-blocking-time": {
+            "displayValue": "1,000 ms",
+            "numericValue": 998.4328999999999
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "2.8 s",
+            "numericValue": 2777.15819235029
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.69,
+            "displayValue": "1.3 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.62,
+            "displayValue": "2.0 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.05,
+            "displayValue": "1,000 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.33,
+            "displayValue": "2.8 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.8,
+            "displayValue": "3.0 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.12,
+            "displayValue": "450 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.69,
+            "displayValue": "1.3 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0,
+            "displayValue": "Potential savings of 140 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "4.3 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:04:15.208Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 88,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "0.6 s",
+            "numericValue": 585.3188749999999
+          },
+          "largest-contentful-paint": {
+            "displayValue": "0.8 s",
+            "numericValue": 815.198125
+          },
+          "total-blocking-time": {
+            "displayValue": "260 ms",
+            "numericValue": 260.62075000000004
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "1.4 s",
+            "numericValue": 1441.2647294072663
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.99,
+            "displayValue": "0.6 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.98,
+            "displayValue": "0.8 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.67,
+            "displayValue": "260 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.85,
+            "displayValue": "1.4 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.99,
+            "displayValue": "1.5 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.53,
+            "displayValue": "240 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.98,
+            "displayValue": "0.7 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 10 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "2.3 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      }
+    ],
+    "mobile": [
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:04:51.972Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 64,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "2.0 s",
+            "numericValue": 2001.842
+          },
+          "largest-contentful-paint": {
+            "displayValue": "2.8 s",
+            "numericValue": 2783.4210000000003
+          },
+          "total-blocking-time": {
+            "displayValue": "2,330 ms",
+            "numericValue": 2325.3685000000005
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "4.1 s",
+            "numericValue": 4063.1273138308225
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.84,
+            "displayValue": "2.0 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.83,
+            "displayValue": "2.8 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.05,
+            "displayValue": "2,330 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.8,
+            "displayValue": "4.1 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.74,
+            "displayValue": "5.2 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.01,
+            "displayValue": "810 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.82,
+            "displayValue": "2.7 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 0 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "bootup-time",
+            "title": "Reduce JavaScript execution time",
+            "score": 0,
+            "displayValue": "1.8 s",
+            "description": "Consider reducing the time spent parsing, compiling, and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to reduce Javascript execution time](https://developer.chrome.com/docs/lighthouse/performance/bootup-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "8.4 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:05:30.673Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 65,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "1.9 s",
+            "numericValue": 1930.4143999999997
+          },
+          "largest-contentful-paint": {
+            "displayValue": "2.5 s",
+            "numericValue": 2534.7072
+          },
+          "total-blocking-time": {
+            "displayValue": "2,580 ms",
+            "numericValue": 2580.491
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "3.8 s",
+            "numericValue": 3804.055788355287
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.86,
+            "displayValue": "1.9 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.89,
+            "displayValue": "2.5 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.04,
+            "displayValue": "2,580 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.84,
+            "displayValue": "3.8 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.73,
+            "displayValue": "5.3 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.01,
+            "displayValue": "810 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.88,
+            "displayValue": "2.4 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 0 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "bootup-time",
+            "title": "Reduce JavaScript execution time",
+            "score": 0,
+            "displayValue": "1.8 s",
+            "description": "Consider reducing the time spent parsing, compiling, and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to reduce Javascript execution time](https://developer.chrome.com/docs/lighthouse/performance/bootup-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "7.9 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:06:08.479Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 72,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "1.8 s",
+            "numericValue": 1778.9984000000002
+          },
+          "largest-contentful-paint": {
+            "displayValue": "2.3 s",
+            "numericValue": 2290.9970000000003
+          },
+          "total-blocking-time": {
+            "displayValue": "1,370 ms",
+            "numericValue": 1374.0012
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "2.8 s",
+            "numericValue": 2789.5249042761534
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.9,
+            "displayValue": "1.8 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.93,
+            "displayValue": "2.3 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.16,
+            "displayValue": "1,370 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.96,
+            "displayValue": "2.8 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.9,
+            "displayValue": "3.8 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0,
+            "displayValue": "1,010 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.92,
+            "displayValue": "2.2 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 0 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "6.1 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:06:50.507Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 48,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "2.8 s",
+            "numericValue": 2836.34
+          },
+          "largest-contentful-paint": {
+            "displayValue": "3.8 s",
+            "numericValue": 3814.67
+          },
+          "total-blocking-time": {
+            "displayValue": "4,760 ms",
+            "numericValue": 4756.244999999999
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "6.5 s",
+            "numericValue": 6489.014001407608
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.55,
+            "displayValue": "2.8 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.55,
+            "displayValue": "3.8 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0,
+            "displayValue": "4,760 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.39,
+            "displayValue": "6.5 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.34,
+            "displayValue": "9.0 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0,
+            "displayValue": "1,090 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.58,
+            "displayValue": "3.6 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 0 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "bootup-time",
+            "title": "Reduce JavaScript execution time",
+            "score": 0,
+            "displayValue": "2.9 s",
+            "description": "Consider reducing the time spent parsing, compiling, and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to reduce Javascript execution time](https://developer.chrome.com/docs/lighthouse/performance/bootup-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "12.8 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      },
+      {
+        "lighthouseVersion": "11.7.1",
+        "fetchTime": "2026-11-24T04:07:33.902Z",
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36",
+        "scores": {
+          "performance": 75,
+          "accessibility": 100,
+          "best-practices": 100,
+          "pwa": 100
+        },
+        "metrics": {
+          "first-contentful-paint": {
+            "displayValue": "1.8 s",
+            "numericValue": 1801.46875
+          },
+          "largest-contentful-paint": {
+            "displayValue": "2.3 s",
+            "numericValue": 2300.78125
+          },
+          "total-blocking-time": {
+            "displayValue": "990 ms",
+            "numericValue": 993.78125
+          },
+          "cumulative-layout-shift": {
+            "displayValue": "0",
+            "numericValue": 0
+          },
+          "speed-index": {
+            "displayValue": "3.0 s",
+            "numericValue": 3049.0552297389704
+          }
+        },
+        "failures": [
+          {
+            "category": "performance",
+            "id": "first-contentful-paint",
+            "title": "First Contentful Paint",
+            "score": 0.89,
+            "displayValue": "1.8 s",
+            "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "largest-contentful-paint",
+            "title": "Largest Contentful Paint",
+            "score": 0.93,
+            "displayValue": "2.3 s",
+            "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)"
+          },
+          {
+            "category": "performance",
+            "id": "total-blocking-time",
+            "title": "Total Blocking Time",
+            "score": 0.27,
+            "displayValue": "990 ms",
+            "description": "Sum of all time periods between FCP and Time to Interactive, when task length exceeded 50ms, expressed in milliseconds. [Learn more about the Total Blocking Time metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-total-blocking-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "speed-index",
+            "title": "Speed Index",
+            "score": 0.93,
+            "displayValue": "3.0 s",
+            "description": "Speed Index shows how quickly the contents of a page are visibly populated. [Learn more about the Speed Index metric](https://developer.chrome.com/docs/lighthouse/performance/speed-index/)."
+          },
+          {
+            "category": "performance",
+            "id": "interactive",
+            "title": "Time to Interactive",
+            "score": 0.92,
+            "displayValue": "3.5 s",
+            "description": "Time to Interactive is the amount of time it takes for the page to become fully interactive. [Learn more about the Time to Interactive metric](https://developer.chrome.com/docs/lighthouse/performance/interactive/)."
+          },
+          {
+            "category": "performance",
+            "id": "max-potential-fid",
+            "title": "Max Potential First Input Delay",
+            "score": 0.08,
+            "displayValue": "500 ms",
+            "description": "The maximum potential First Input Delay that your users could experience is the duration of the longest task. [Learn more about the Maximum Potential First Input Delay metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/)."
+          },
+          {
+            "category": "performance",
+            "id": "first-meaningful-paint",
+            "title": "First Meaningful Paint",
+            "score": 0.97,
+            "displayValue": "1.8 s",
+            "description": "First Meaningful Paint measures when the primary content of a page is visible. [Learn more about the First Meaningful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-meaningful-paint/)."
+          },
+          {
+            "category": "performance",
+            "id": "render-blocking-resources",
+            "title": "Eliminate render-blocking resources",
+            "score": 0.5,
+            "displayValue": "Potential savings of 10 ms",
+            "description": "Resources are blocking the first paint of your page. Consider delivering critical JS/CSS inline and deferring all non-critical JS/styles. [Learn how to eliminate render-blocking resources](https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/)."
+          },
+          {
+            "category": "performance",
+            "id": "unused-javascript",
+            "title": "Reduce unused JavaScript",
+            "score": 0,
+            "displayValue": "Potential savings of 25 KiB",
+            "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/)."
+          },
+          {
+            "category": "performance",
+            "id": "bootup-time",
+            "title": "Reduce JavaScript execution time",
+            "score": 0,
+            "displayValue": "1.3 s",
+            "description": "Consider reducing the time spent parsing, compiling, and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to reduce Javascript execution time](https://developer.chrome.com/docs/lighthouse/performance/bootup-time/)."
+          },
+          {
+            "category": "performance",
+            "id": "mainthread-work-breakdown",
+            "title": "Minimize main-thread work",
+            "score": 0,
+            "displayValue": "5.4 s",
+            "description": "Consider reducing the time spent parsing, compiling and executing JS. You may find delivering smaller JS payloads helps with this. [Learn how to minimize main-thread work](https://developer.chrome.com/docs/lighthouse/performance/mainthread-work-breakdown/)"
+          }
+        ]
+      }
+    ]
+  }
+}

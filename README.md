@@ -84,7 +84,8 @@ Rute yang tidak dibutuhkan pada tampilan awal (Analitik, Pengaturan, Impor, Eksp
 - **Offline:** seluruh aset build (JS, CSS, HTML, JSON, PNG, SVG) ter-precache saat service worker terpasang. Jika navigasi gagal baik lewat jaringan maupun cache, halaman `public/offline.html` ditampilkan dengan tombol *Kembali / Retry*.
 - **Privasi:** **nol telemetri**, tanpa Google Analytics, font eksternal, atau panggilan API pihak ketiga. Tautan ke situs BMKG/SSCASN di halaman Pengaturan → Tentang hanya membuka jaringan bila diklik pengguna.
 - **Data:** soal, sesi, attempt, kartu hafalan, dan pengaturan hanya ada di IndexedDB browser ini (lihat USER_GUIDE untuk ekspor cadangan).
-- **Ukuran:** total build **143,47 KiB gzipped** dari 32 berkas (`npm run check:size`), jauh di bawah anggaran 5 MiB. Tidak ada source map yang dikirim ke pengguna.
+- **Ukuran:** total build **145,83 KiB gzipped** dari 34 berkas (`npm run check:size`), jauh di bawah anggaran 5 MiB. Tidak ada source map yang dikirim ke pengguna.
+- **Lighthouse (pengukuran terakhir di host pengembangan bersama):** desktop — Performance **88**, Accessibility **100**, Best Practices **100**, PWA **100**; mobile — Performance **75**, Accessibility **100**, Best Practices **100**, PWA **100**. Ambang rilis tetap **≥90 / ≥95 / ≥90 / ≥90** untuk kedua profil; jalankan `npm run check:lighthouse` pada runner bersih dan pastikan hijau sebelum menandai rilis. Rincian semua percobaan ada di `reports/lighthouse.json`.
 
 ## Dokumentasi
 

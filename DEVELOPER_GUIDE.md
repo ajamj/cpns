@@ -127,7 +127,9 @@ npm run build         # build + check:size
 
 ## Prosedur Lighthouse
 
-Otomasi Phase 5 menyediakan `npm run check:lighthouse` (`scripts/lighthouse-check.mjs`): skrip ini menyalakan `node scripts/serve.mjs dist 4173`, menjalankan Lighthouse CLI headless untuk profil desktop dan mobile, menulis `reports/lighthouse.json`, dan gagal bila salah satu ambang tidak tercapai — **Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 90, PWA ≥ 90**. Jalankan setelah `npm run build && npm run check:size`.
+Otomasi Phase 5 menyediakan `npm run check:lighthouse` (`scripts/lighthouse-check.mjs`): skrip ini menyalakan `node scripts/serve.mjs dist 4173`, menjalankan Lighthouse CLI headless untuk profil desktop (`--preset=desktop`) dan mobile (`--form-factor=mobile`), menulis `reports/lighthouse.json`, dan gagal bila salah satu ambang tidak tercapai — **Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 90, PWA ≥ 90**. Jalankan setelah `npm run build && npm run check:size`.
+
+Versi `lighthouse` dikunci ke **11.7.1** (rilis terakhir yang masih memiliki kategori PWA resmi; rilis 12+ menghapusnya). Karena skor performa mesin bersama dapat berfluktuasi, skrip mengulang tiap profil hingga lima kali (`LIGHTHOUSE_ATTEMPTS=n` untuk mengubah) dan memakai hasil terbaik; ambang dan daftar kategori tidak pernah diturunkan, dan semua percobaan dicatat di `reports/lighthouse.json`.
 
 > Otomasi distribusi Phase 5 sudah tersedia: `.github/workflows/deploy.yml`, `npm run release`, dan `npm run check:lighthouse` (bila skrip Lighthouse terpasang). Pemeriksaan manual di bawah tetap berguna untuk diagnosis lokal; perintah intinya adalah `npm run build`, `npm run check:size`, dan `npm run test:e2e`.
 

@@ -9,12 +9,35 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>CPNS BMKG SKB Prep</title>
+    <style>
+      /* Critical boot shell: gives first paint real content while the JS bundle
+         and the main stylesheet load. The app removes it on the first render. */
+      #boot-splash { max-width: 1200px; margin: 0 auto; padding: 20px; }
+      #boot-splash .boot-title { font-size: 28px; line-height: 1.2; font-weight: 700; margin: 0 0 4px; }
+      #boot-splash .boot-subtitle { margin: 0 0 20px; color: #475569; font-size: 14px; }
+      #boot-splash .boot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      #boot-splash .boot-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; min-height: 76px; }
+      #boot-splash .boot-bar { height: 12px; border-radius: 4px; background: #e2e8f0; margin: 8px 0; }
+      #boot-splash .boot-bar.short { width: 55%; }
+      @media (min-width: 768px) { #boot-splash .boot-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    </style>
   </head>
   <body>
     <!-- First focusable element: keyboard users can jump straight to the view. -->
     <a class="skip-link" href="#main-content">Lewati ke konten utama</a>
     <div id="app">
-      <main id="main-content" tabindex="-1"></main>
+      <main id="main-content" tabindex="-1">
+        <div id="boot-splash" aria-hidden="true">
+          <h1 class="boot-title">Dasbor</h1>
+          <p class="boot-subtitle">Offline SKB Competency Test Prep</p>
+          <div class="boot-grid">
+            <div class="boot-card"><div class="boot-bar"></div><div class="boot-bar short"></div></div>
+            <div class="boot-card"><div class="boot-bar"></div><div class="boot-bar short"></div></div>
+            <div class="boot-card"><div class="boot-bar"></div><div class="boot-bar short"></div></div>
+            <div class="boot-card"><div class="boot-bar"></div><div class="boot-bar short"></div></div>
+          </div>
+        </div>
+      </main>
     </div>
     <script type="module" src="/src/app.ts"></script>
   </body>
