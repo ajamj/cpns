@@ -82,6 +82,9 @@ export default defineConfig({
       '@features': '/src/features',
       '@core': '/src/core',
       '@db': '/src/db',
+      // Exact subpath first so the editor stylesheet is not swallowed by the
+      // bundled-JS alias for the `easymde` package root.
+      'easymde/dist/easymde.min.css': path.resolve(__dirname, 'node_modules/easymde/dist/easymde.min.css'),
       'easymde': path.resolve(__dirname, 'node_modules/easymde/dist/easymde.min.js'),
     },
   },

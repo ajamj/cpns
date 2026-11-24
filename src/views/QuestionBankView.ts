@@ -1,11 +1,32 @@
 // Question Bank View
 import { questionsRepo } from '../db/repositories/questions';
 import { backupRepo } from '../db/repositories/backup';
-import { getSubdomainColor, loadKisiKisi, getTopicsByCategory } from '../features/kisi-kisi/registry';
+import {
+  getAllTopicCodes,
+  getSubdomainColor,
+  getTopicsByCategory,
+  loadKisiKisi,
+} from '../features/kisi-kisi/registry';
+import {
+  correctIndices,
+  createEmptyDraft,
+  draftFromQuestion,
+  draftToQuestion,
+  parseTags,
+  validateQuestionDraft,
+  MAX_OPTIONS,
+  MIN_OPTIONS,
+  type QuestionFormDraft,
+  type QuestionFormErrorCode,
+  type QuestionFormField,
+} from '../features/questions/question-form';
 import { navigate, t } from '../core/i18n';
 import { eventBus } from '../core/events';
 import { generateId, nowISO, downloadJSON, parseCSV, toCSV } from '../core/utils';
-import type { Question, QuestionFilter } from '../shared/types';
+import { memoizeSelector, showToast } from '../core/app-utils';
+import { closeModal, openModal } from '../core/modal';
+import type EasyMDE from 'easymde';
+import type { Difficulty, Question, QuestionFilter } from '../shared/types';
 import Fuse from 'fuse.js';
 import {
   Virtualizer,
@@ -13,13 +34,29 @@ import {
   observeElementOffset,
   observeElementRect,
 } from '@tanstack/virtual-core';
-import { memoizeSelector } from '../core/app-utils';
+import 'easymde/dist/easymde.min.css';
 
 const ROW_HEIGHT = 76;
 const OVERSCAN = 8;
 // Small lists stay fully rendered (simpler keyboard traversal); virtualization
 // kicks in for large banks where rendering every row would block the UI.
 const VIRTUALIZE_THRESHOLD = 200;
+
+type MarkdownEditor = EasyMDE;
+type EditorConstructor = new (options: Record<string, unknown>) => MarkdownEditor;
+
+/** Question text comes from imports and user input: never inject it as HTML. */
+function escapeHTML(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      default: return '&#39;';
+    }
+  });
+}
 
 /** Normalised searchable text, built at most once per question object. */
 const searchHaystacks = new WeakMap<object, string>();
@@ -111,6 +148,17 @@ export class QuestionBankView {
   private scrollElement: HTMLElement | null = null;
   private tbody: HTMLTableSectionElement | null = null;
   private resetScrollOnRefresh = false;
+
+  // Question form modal state (Task 2). The draft is the single source of truth
+  // while the dialog is open; inputs and the Markdown editors write into it.
+  private formOverlay: HTMLElement | null = null;
+  private formDraft: QuestionFormDraft | null = null;
+  private formQuestion: Question | undefined;
+  private formValidCodes: ReadonlySet<string> = new Set();
+  private editors: { stem: MarkdownEditor | null; explanation: MarkdownEditor | null } = {
+    stem: null,
+    explanation: null,
+  };
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -236,19 +284,7 @@ export class QuestionBankView {
               </button>
               <div class="dropdown-menu" id="topicFilterMenu" style="max-height:300px;overflow:auto;min-width:250px;display:none;">
                 <label class="dropdown-item"><input type="checkbox" value="" ${!this.filter.topicCodes?.length ? 'checked' : ''}> ${t('filter.all')}</label>
-                <div class="dropdown-divider"></div>
-                ${getTopicsByCategory('umum').map(cat => `
-                  <div class="dropdown-divider"></div>
-                  <div class="dropdown-item" style="font-weight:var(--font-semibold);color:var(--color-text-muted);padding:var(--space-2) var(--space-3);">${t('kisi-kisi.umum')}</div>
-                  ${loadKisiKisi().then(({topics}) => topics.filter(t => t.category === 'umum').map(t => `
-                    <label class="dropdown-item"><input type="checkbox" value="${t.code}" ${this.filter.topicCodes?.includes(t.code) ? 'checked' : ''}> ${t.code} - ${t.title}</label>
-                  `).join(''))}
-                `)}
-                <div class="dropdown-divider"></div>
-                <div class="dropdown-item" style="font-weight:var(--font-semibold);color:var(--color-text-muted);padding:var(--space-2) var(--space-3);">${t('kisi-kisi.khusus')}</div>
-                ${loadKisiKisi().then(({topics}) => topics.filter(t => t.category === 'khusus').map(t => `
-                  <label class="dropdown-item"><input type="checkbox" value="${t.code}" ${this.filter.topicCodes?.includes(t.code) ? 'checked' : ''}> ${t.code} - ${t.title}</label>
-                `).join(''))}
+                ${this.getTopicFilterHTML()}
               </div>
             </div>
 
@@ -329,37 +365,75 @@ export class QuestionBankView {
     `;
   }
 
+  /**
+   * Topic checkboxes for the list filter. The registry is loaded before the
+   * view renders (app.ts), so this stays synchronous — no Promise leaked into
+   * the markup as happened with the old in-template loadKisiKisi() calls.
+   */
+  private getTopicFilterHTML(): string {
+    const groups: Array<{ category: 'umum' | 'khusus'; label: string }> = [
+      { category: 'umum', label: t('kisi-kisi.umum') },
+      { category: 'khusus', label: t('kisi-kisi.khusus') },
+    ];
+    const registered = new Set(getAllTopicCodes());
+    const legacyCodes = [...new Set(this.questions.map(q => q.topicCode))]
+      .filter(code => !registered.has(code));
+
+    const groupHTML = (label: string, codes: Array<{ code: string; title?: string }>): string => `
+      <div class="dropdown-divider"></div>
+      <div class="dropdown-item" style="font-weight:var(--font-semibold);color:var(--color-text-muted);padding:var(--space-2) var(--space-3);">${escapeHTML(label)}</div>
+      ${codes.map(topic => `
+        <label class="dropdown-item">
+          <input type="checkbox" value="${escapeHTML(topic.code)}" ${this.filter.topicCodes?.includes(topic.code as any) ? 'checked' : ''}>
+          ${escapeHTML(topic.code)} - ${escapeHTML(topic.title ?? '')}
+        </label>
+      `).join('')}
+    `;
+
+    return groups.map(group =>
+      groupHTML(group.label, getTopicsByCategory(group.category))
+    ).join('') + (legacyCodes.length
+      ? groupHTML(t('qb.importedTopics'), legacyCodes.map(code => ({ code })))
+      : '');
+  }
+
   /** One fixed-height row, extracted from the old paged innerHTML template. */
   private getRowHTML(q: any): string {
+    const stem = String(q.stem ?? '');
+    const explanation = String(q.explanation ?? '');
+    const flags = q.flags ?? {};
+    const stats = q.statistics ?? {};
+    const difficulty = q.difficulty as Difficulty;
+    const mastery = stats.masteryLevel ?? 0;
     return `
-      <tr data-id="${q.id}" style="height:${ROW_HEIGHT}px;" ${this.selectedIds.has(q.id) ? 'class="selected"' : ''}>
-        <td><input type="checkbox" class="form-check-input row-checkbox bulk-checkbox" aria-label="Pilih soal ${q.topicCode}" value="${q.id}" ${this.selectedIds.has(q.id) ? 'checked' : ''}></td>
+      <tr data-id="${escapeHTML(q.id)}" style="height:${ROW_HEIGHT}px;" ${this.selectedIds.has(q.id) ? 'class="selected"' : ''}>
+        <td><input type="checkbox" class="form-check-input row-checkbox bulk-checkbox" aria-label="Pilih soal ${escapeHTML(q.topicCode)}" value="${escapeHTML(q.id)}" ${this.selectedIds.has(q.id) ? 'checked' : ''}></td>
         <td>
-          <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(q.topicCode)};">${q.topicCode}</span>
+          <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(q.topicCode)};">${escapeHTML(q.topicCode)}</span>
         </td>
         <td style="max-width:400px;">
-          <div style="font-weight:var(--font-medium);">${q.stem.length > 100 ? q.stem.substring(0, 100) + '...' : q.stem}</div>
-          ${q.explanation ? `<div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px;">${q.explanation.substring(0, 80)}...</div>` : ''}
+          <div style="font-weight:var(--font-medium);">${escapeHTML(stem.length > 100 ? stem.substring(0, 100) + '...' : stem)}</div>
+          ${explanation ? `<div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px;">${escapeHTML(explanation.substring(0, 80))}...</div>` : ''}
         </td>
-        <td><span class="badge badge-difficulty-${q.difficulty}">${t('difficulty.' + q.difficulty)}</span></td>
+        <td><span class="badge badge-difficulty-${difficulty}">${t('difficulty.' + difficulty)}</span></td>
         <td>
-          <span class="badge badge-mastery-${q.statistics.masteryLevel}">${t('mastery.' + q.statistics.masteryLevel)}</span>
-          <span style="font-size:var(--text-xs);color:var(--color-text-muted);margin-left:var(--space-1);">${q.statistics.totalAttempts} percobaan</span>
+          <span class="badge badge-mastery-${mastery}">${t('mastery.' + mastery)}</span>
+          <span style="font-size:var(--text-xs);color:var(--color-text-muted);margin-left:var(--space-1);">${escapeHTML(stats.totalAttempts ?? 0)} percobaan</span>
         </td>
         <td>
-          ${q.flags.bookmarked ? '<span class="badge badge-warning" title="Bookmark">★</span>' : ''}
-          ${q.flags.needsReview ? '<span class="badge badge-info" title="Perlu Ulang">↻</span>' : ''}
-          ${q.flags.disputed ? '<span class="badge badge-danger" title="Disput">⚠</span>' : ''}
+          ${flags.bookmarked ? '<span class="badge badge-warning" title="Bookmark">★</span>' : ''}
+          ${flags.needsReview ? '<span class="badge badge-info" title="Perlu Ulang">↻</span>' : ''}
+          ${flags.disputed ? '<span class="badge badge-danger" title="Disput">⚠</span>' : ''}
         </td>
         <td>
           <div style="display:flex;gap:var(--space-1);">
-            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${q.id}" aria-label="${t('common.edit')}" title="${t('common.edit')}">
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${escapeHTML(q.id)}" aria-label="${t('common.edit')}" title="${t('common.edit')}">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="duplicate" data-id="${q.id}" aria-label="Duplikat soal" title="Duplikat">
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="duplicate" data-id="${escapeHTML(q.id)}" aria-label="Duplikat soal" title="Duplikat">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
-            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${q.id}" aria-label="${t('common.delete')}" title="${t('common.delete')}">
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${escapeHTML(q.id)}" aria-label="${t('common.delete')}" title="${t('common.delete')}">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2 2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           </div>
@@ -403,6 +477,11 @@ export class QuestionBankView {
       else if (action === 'duplicate') void this.duplicateQuestion(id!);
       else if (action === 'delete') void this.deleteQuestion(id!);
     });
+
+    if (this.filteredQuestions.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="text-align:center;padding:var(--space-8);">${escapeHTML(t('qb.noQuestions'))}</td></tr>`;
+      return;
+    }
 
     if (this.filteredQuestions.length <= VIRTUALIZE_THRESHOLD) {
       tbody.innerHTML = this.filteredQuestions.map((q) => this.getRowHTML(q)).join('');
@@ -588,12 +667,426 @@ export class QuestionBankView {
     if (this.scrollElement) this.scrollElement.scrollTop = scrollTop;
   }
 
+  // ---------------------------------------------------------------------------
+  // Question CRUD modal (Task 2)
+  // ---------------------------------------------------------------------------
+
   private async editQuestion(id?: string): Promise<void> {
-    // Navigate to question form modal or page
-    // For now, show a simple prompt - in full implementation, open a modal
-    const question = id ? await import('../db/repositories/questions').then(m => m.questionsRepo.getById(id)) : null;
-    // TODO: Implement full question form modal
-    alert('Question form modal - TODO');
+    await loadKisiKisi();
+    const existing = id ? await questionsRepo.getById(id) : undefined;
+    if (id && !existing) {
+      showToast(t('qb.questionNotFound'), 'error');
+      return;
+    }
+
+    this.formQuestion = existing;
+    this.formDraft = existing ? draftFromQuestion(existing) : createEmptyDraft();
+    // Imported banks may use legacy codes (e.g. TK-01). They remain valid when
+    // editing those rows; new questions must use a registered kisi-kisi code.
+    this.formValidCodes = new Set([
+      ...getAllTopicCodes(),
+      ...this.questions.map(question => question.topicCode),
+    ]);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay question-form-overlay';
+    overlay.innerHTML = this.getFormHTML();
+    document.body.appendChild(overlay);
+    this.formOverlay = overlay;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openModal(overlay, trigger);
+    this.bindFormEvents(overlay);
+    await this.initFormEditors(overlay);
+  }
+
+  private getFormHTML(): string {
+    const draft = this.formDraft!;
+    const isEdit = Boolean(this.formQuestion);
+    const registered = new Set(getAllTopicCodes());
+    const legacyCodes = [...new Set(this.questions.map(question => question.topicCode))]
+      .filter(code => !registered.has(code));
+    const topicOption = (code: string, title?: string): string => `
+      <option value="${escapeHTML(code)}" ${draft.topicCode === code ? 'selected' : ''}>
+        ${escapeHTML(code)}${title ? ' — ' + escapeHTML(title) : ''}
+      </option>`;
+    const topicGroups = (['umum', 'khusus'] as const).map(category => `
+      <optgroup label="${escapeHTML(t(category === 'umum' ? 'kisi-kisi.umum' : 'kisi-kisi.khusus'))}">
+        ${getTopicsByCategory(category).map(topic => topicOption(topic.code, topic.title)).join('')}
+      </optgroup>`).join('');
+
+    const flags: Array<{ key: keyof QuestionFormDraft['flags']; label: string }> = [
+      { key: 'bookmarked', label: t('filter.bookmarked') },
+      { key: 'needsReview', label: t('filter.needsReview') },
+      { key: 'disputed', label: t('filter.disputed') },
+    ];
+
+    return `
+      <div class="modal question-form-modal" style="max-width:860px;">
+        <div class="modal-header">
+          <h2 class="modal-title" id="questionFormTitle">${isEdit ? escapeHTML(t('qb.editQuestion')) : escapeHTML(t('qb.addQuestion'))}</h2>
+          <button type="button" class="modal-close" id="btnCloseQuestionForm" aria-label="${escapeHTML(t('common.close'))}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-error question-form-summary" id="questionFormErrors" role="alert" hidden></div>
+          <div class="tabs" role="tablist" aria-label="${escapeHTML(t('qb.title'))}">
+            <button type="button" class="tab active" role="tab" id="qfTabStem" data-form-tab="stem" aria-controls="qfPanelStem" aria-selected="true">${escapeHTML(t('qb.tabs.stem'))}</button>
+            <button type="button" class="tab" role="tab" id="qfTabOptions" data-form-tab="options" aria-controls="qfPanelOptions" aria-selected="false" tabindex="-1">${escapeHTML(t('qb.tabs.options'))}</button>
+            <button type="button" class="tab" role="tab" id="qfTabExplanation" data-form-tab="explanation" aria-controls="qfPanelExplanation" aria-selected="false" tabindex="-1">${escapeHTML(t('qb.tabs.explanation'))}</button>
+            <button type="button" class="tab" role="tab" id="qfTabMetadata" data-form-tab="metadata" aria-controls="qfPanelMetadata" aria-selected="false" tabindex="-1">${escapeHTML(t('qb.tabs.metadata'))}</button>
+          </div>
+
+          <section class="tab-panel" id="qfPanelStem" role="tabpanel" aria-labelledby="qfTabStem" data-form-panel="stem">
+            <div class="form-group">
+              <label class="form-label" for="qfTopic">${escapeHTML(t('qb.topic'))}</label>
+              <select id="qfTopic" class="form-select" required>
+                <option value="">— ${escapeHTML(t('filter.topic'))} —</option>
+                ${topicGroups}
+                ${legacyCodes.length ? `<optgroup label="${escapeHTML(t('qb.importedTopics'))}">${legacyCodes.map(code => topicOption(code)).join('')}</optgroup>` : ''}
+              </select>
+              <div class="form-error" data-error-for="topicCode" hidden></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="qfStem">${escapeHTML(t('qb.stem'))}</label>
+              <textarea id="qfStem" class="form-textarea" rows="6">${escapeHTML(draft.stem)}</textarea>
+              <p class="form-help">${escapeHTML(t('qb.markdownHelp'))}</p>
+              <div class="form-error" data-error-for="stem" hidden></div>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="qfPanelOptions" role="tabpanel" aria-labelledby="qfTabOptions" data-form-panel="options" style="display:none;">
+            <p class="form-help">${escapeHTML(t('qb.minOptions'))} · ${escapeHTML(t('qb.maxOptions'))} · ${escapeHTML(t('qb.requireCorrect'))}</p>
+            <div id="qfOptions" class="question-options"></div>
+            <button type="button" class="btn btn-secondary btn-sm" id="qfAddOption">+ ${escapeHTML(t('qb.addOption'))}</button>
+            <div class="form-error" data-error-for="options" hidden></div>
+            <div class="form-error" data-error-for="correctAnswer" hidden></div>
+          </section>
+
+          <section class="tab-panel" id="qfPanelExplanation" role="tabpanel" aria-labelledby="qfTabExplanation" data-form-panel="explanation" style="display:none;">
+            <div class="form-group">
+              <label class="form-label" for="qfExplanation">${escapeHTML(t('qb.explanation'))}</label>
+              <textarea id="qfExplanation" class="form-textarea" rows="8">${escapeHTML(draft.explanation)}</textarea>
+              <p class="form-help">${escapeHTML(t('qb.markdownHelp'))}</p>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="qfPanelMetadata" role="tabpanel" aria-labelledby="qfTabMetadata" data-form-panel="metadata" style="display:none;">
+            <div class="question-form-grid">
+              <div class="form-group">
+                <label class="form-label" for="qfDifficulty">${escapeHTML(t('qb.difficulty'))}</label>
+                <select id="qfDifficulty" class="form-select">
+                  ${([1, 2, 3] as Difficulty[]).map(level => `<option value="${level}" ${draft.difficulty === level ? 'selected' : ''}>${escapeHTML(t('difficulty.' + level))}</option>`).join('')}
+                </select>
+                <div class="form-error" data-error-for="difficulty" hidden></div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="qfSource">${escapeHTML(t('qb.source'))}</label>
+                <input type="text" id="qfSource" class="form-input" value="${escapeHTML(draft.source)}" placeholder="BMKG 2024">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="qfTags">${escapeHTML(t('qb.tags'))}</label>
+                <input type="text" id="qfTags" class="form-input" value="${escapeHTML(draft.tags.join(', '))}" placeholder="meteorologi, cuaca">
+                <p class="form-help">${escapeHTML(t('qb.tagsHelp'))}</p>
+              </div>
+              <fieldset class="form-group question-form-flags">
+                <legend class="form-label">${escapeHTML(t('qb.flags'))}</legend>
+                ${flags.map(flag => `
+                  <label class="form-check">
+                    <input type="checkbox" class="form-check-input" data-flag="${flag.key}" ${draft.flags[flag.key] ? 'checked' : ''}>
+                    <span class="form-check-label">${escapeHTML(flag.label)}</span>
+                  </label>`).join('')}
+              </fieldset>
+            </div>
+          </section>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="qfCancel">${escapeHTML(t('common.cancel'))}</button>
+          <button type="button" class="btn btn-primary" id="qfSave">${escapeHTML(isEdit ? t('common.save') : t('common.add'))}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  private bindFormEvents(overlay: HTMLElement): void {
+    overlay.querySelectorAll<HTMLElement>('[data-form-tab]').forEach(button => {
+      button.addEventListener('click', () => this.switchFormTab(overlay, button.dataset.formTab ?? 'stem'));
+    });
+    overlay.querySelector('#btnCloseQuestionForm')?.addEventListener('click', () => this.closeQuestionForm());
+    overlay.querySelector('#qfCancel')?.addEventListener('click', () => this.closeQuestionForm());
+    overlay.querySelector('#qfSave')?.addEventListener('click', () => void this.saveQuestionForm(overlay));
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) this.closeQuestionForm();
+    });
+
+    overlay.querySelector('#qfTopic')?.addEventListener('change', event => {
+      if (this.formDraft) this.formDraft.topicCode = (event.target as HTMLSelectElement).value;
+    });
+    overlay.querySelector('#qfStem')?.addEventListener('input', event => {
+      if (this.formDraft && !this.editors.stem) this.formDraft.stem = (event.target as HTMLTextAreaElement).value;
+    });
+    overlay.querySelector('#qfExplanation')?.addEventListener('input', event => {
+      if (this.formDraft && !this.editors.explanation) this.formDraft.explanation = (event.target as HTMLTextAreaElement).value;
+    });
+    overlay.querySelector('#qfDifficulty')?.addEventListener('change', event => {
+      if (this.formDraft) this.formDraft.difficulty = Number((event.target as HTMLSelectElement).value) as Difficulty;
+    });
+    overlay.querySelector('#qfSource')?.addEventListener('input', event => {
+      if (this.formDraft) this.formDraft.source = (event.target as HTMLInputElement).value;
+    });
+    overlay.querySelector('#qfTags')?.addEventListener('input', event => {
+      if (this.formDraft) this.formDraft.tags = parseTags((event.target as HTMLInputElement).value);
+    });
+    overlay.querySelectorAll<HTMLInputElement>('[data-flag]').forEach(input => {
+      input.addEventListener('change', () => {
+        const flag = input.dataset.flag as keyof QuestionFormDraft['flags'] | undefined;
+        if (this.formDraft && flag) this.formDraft.flags[flag] = input.checked;
+      });
+    });
+
+    overlay.querySelector('#qfAddOption')?.addEventListener('click', () => {
+      const draft = this.formDraft;
+      if (!draft || draft.options.length >= MAX_OPTIONS) return;
+      draft.options.push({ id: generateId(), text: '', isCorrect: false });
+      this.renderOptionRows(overlay);
+      overlay.querySelector<HTMLInputElement>(`.option-text[data-index="${draft.options.length - 1}"]`)?.focus();
+    });
+
+    const options = overlay.querySelector<HTMLElement>('#qfOptions');
+    options?.addEventListener('input', event => {
+      const target = event.target as HTMLInputElement;
+      if (!target.matches('.option-text') || !this.formDraft) return;
+      const option = this.formDraft.options[Number(target.dataset.index)];
+      if (option) option.text = target.value;
+    });
+    options?.addEventListener('change', event => {
+      const target = event.target as HTMLInputElement;
+      if (!target.matches('.option-correct') || !this.formDraft) return;
+      const option = this.formDraft.options[Number(target.dataset.index)];
+      if (!option) return;
+      option.isCorrect = target.checked;
+      target.closest('.question-option-row')?.classList.toggle('is-correct', target.checked);
+    });
+    options?.addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.option-remove');
+      if (!button || !this.formDraft || this.formDraft.options.length <= MIN_OPTIONS) return;
+      this.formDraft.options.splice(Number(button.dataset.index), 1);
+      this.renderOptionRows(overlay);
+    });
+
+    this.renderOptionRows(overlay);
+  }
+
+  private async initFormEditors(overlay: HTMLElement): Promise<void> {
+    if (this.formOverlay !== overlay || !this.formDraft) return;
+    try {
+      const { default: EditorCtor } = await import('easymde');
+      const Editor = EditorCtor as unknown as EditorConstructor;
+      const draft = this.formDraft;
+      const create = (selector: string, value: string, key: 'stem' | 'explanation'): MarkdownEditor | null => {
+        const element = overlay.querySelector<HTMLTextAreaElement>(selector);
+        if (!element) return null;
+        element.value = value;
+        const editor = new Editor({
+          element,
+          initialValue: value,
+          autoDownloadFontAwesome: false,
+          spellChecker: false,
+          status: false,
+          toolbar: ['bold', 'italic', 'heading', '|', 'unordered-list', 'ordered-list', 'link', '|', 'preview', 'guide'],
+          placeholder: t(key === 'stem' ? 'qb.stem' : 'qb.explanation'),
+        });
+        editor.codemirror.on('change', () => {
+          if (this.formDraft && this.formOverlay === overlay) this.formDraft[key] = editor.value();
+        });
+        return editor;
+      };
+      this.editors.stem = create('#qfStem', draft.stem, 'stem');
+      this.editors.explanation = create('#qfExplanation', draft.explanation, 'explanation');
+    } catch (error) {
+      // The plain textareas remain fully usable if the editor bundle fails.
+      console.warn('Markdown editor unavailable, using plain textareas:', error);
+    }
+  }
+
+  private readEditorValue(overlay: HTMLElement, key: 'stem' | 'explanation'): string {
+    const editor = this.editors[key];
+    if (editor) return editor.value();
+    const selector = key === 'stem' ? '#qfStem' : '#qfExplanation';
+    return overlay.querySelector<HTMLTextAreaElement>(selector)?.value ?? '';
+  }
+
+  private switchFormTab(overlay: HTMLElement, name: string): void {
+    overlay.querySelectorAll<HTMLElement>('[data-form-tab]').forEach(button => {
+      const active = button.dataset.formTab === name;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+      button.tabIndex = active ? 0 : -1;
+    });
+    overlay.querySelectorAll<HTMLElement>('[data-form-panel]').forEach(panel => {
+      panel.style.display = panel.dataset.formPanel === name ? 'block' : 'none';
+    });
+    // CodeMirror measures its container on init; refresh after a hidden panel
+    // becomes visible so the editor is not stuck at zero width.
+    if (name === 'stem') this.editors.stem?.codemirror.refresh();
+    if (name === 'explanation') this.editors.explanation?.codemirror.refresh();
+  }
+
+  private renderOptionRows(overlay: HTMLElement): void {
+    const draft = this.formDraft;
+    const container = overlay.querySelector<HTMLElement>('#qfOptions');
+    if (!draft || !container) return;
+    container.innerHTML = draft.options.map((option, index) => {
+      const letter = String.fromCharCode(65 + index);
+      return `
+        <div class="question-option-row ${option.isCorrect ? 'is-correct' : ''}" data-option-index="${index}">
+          <span class="option-letter" aria-hidden="true">${letter}</span>
+          <input type="checkbox" class="form-check-input option-correct" data-index="${index}" aria-label="${escapeHTML(t('qb.correctOption', { letter }))}" ${option.isCorrect ? 'checked' : ''}>
+          <input type="text" class="form-input option-text" data-index="${index}" value="${escapeHTML(option.text)}" aria-label="${escapeHTML(t('qb.optionPlaceholder', { letter }))}" placeholder="${escapeHTML(t('qb.optionPlaceholder', { letter }))}">
+          <button type="button" class="btn btn-ghost btn-icon btn-sm option-remove" data-index="${index}" aria-label="${escapeHTML(t('qb.removeOption'))} ${letter}" ${draft.options.length <= MIN_OPTIONS ? 'disabled' : ''}>×</button>
+        </div>`;
+    }).join('');
+    const addButton = overlay.querySelector<HTMLButtonElement>('#qfAddOption');
+    if (addButton) addButton.disabled = draft.options.length >= MAX_OPTIONS;
+  }
+
+  private syncFormDraftFromDOM(overlay: HTMLElement): void {
+    const draft = this.formDraft;
+    if (!draft) return;
+    draft.topicCode = overlay.querySelector<HTMLSelectElement>('#qfTopic')?.value ?? '';
+    draft.stem = this.readEditorValue(overlay, 'stem');
+    draft.explanation = this.readEditorValue(overlay, 'explanation');
+    draft.difficulty = Number(overlay.querySelector<HTMLSelectElement>('#qfDifficulty')?.value ?? 2) as Difficulty;
+    draft.source = overlay.querySelector<HTMLInputElement>('#qfSource')?.value ?? '';
+    draft.tags = parseTags(overlay.querySelector<HTMLInputElement>('#qfTags')?.value ?? '');
+    overlay.querySelectorAll<HTMLInputElement>('[data-flag]').forEach(input => {
+      const flag = input.dataset.flag as keyof QuestionFormDraft['flags'] | undefined;
+      if (flag) draft.flags[flag] = input.checked;
+    });
+    // Rebuild from the rendered rows so option removals shift indices cleanly.
+    draft.options = Array.from(overlay.querySelectorAll<HTMLElement>('.question-option-row')).map((row, index) => ({
+      id: draft.options[index]?.id ?? generateId(),
+      text: row.querySelector<HTMLInputElement>('.option-text')?.value ?? '',
+      isCorrect: row.querySelector<HTMLInputElement>('.option-correct')?.checked ?? false,
+    }));
+  }
+
+  private showFormErrors(overlay: HTMLElement, errors: Partial<Record<QuestionFormField, QuestionFormErrorCode>>): void {
+    overlay.querySelectorAll<HTMLElement>('[data-error-for]').forEach(node => {
+      node.hidden = true;
+      node.textContent = '';
+    });
+    const messages: Record<QuestionFormErrorCode, string> = {
+      required: t('qb.required'),
+      invalidTopic: t('qb.validTopic'),
+      invalidDifficulty: t('qb.difficulty'),
+      minOptions: t('qb.minOptions'),
+      maxOptions: t('qb.maxOptions'),
+      optionTextRequired: t('qb.required'),
+      requireCorrect: t('qb.requireCorrect'),
+    };
+    const fields: QuestionFormField[] = ['stem', 'topicCode', 'difficulty', 'options', 'correctAnswer'];
+    let firstField: QuestionFormField | null = null;
+    for (const field of fields) {
+      const code = errors[field];
+      if (!code) continue;
+      if (!firstField) firstField = field;
+      const target = overlay.querySelector<HTMLElement>(`[data-error-for="${field}"]`);
+      if (target) {
+        target.textContent = messages[code];
+        target.hidden = false;
+      }
+    }
+    if (!firstField) return;
+
+    const summary = overlay.querySelector<HTMLElement>('#questionFormErrors');
+    if (summary) {
+      summary.textContent = t('qb.fixErrors');
+      summary.hidden = false;
+    }
+    const tab = firstField === 'difficulty'
+      ? 'metadata'
+      : firstField === 'options' || firstField === 'correctAnswer'
+        ? 'options'
+        : 'stem';
+    this.switchFormTab(overlay, tab);
+    if (firstField === 'stem' && this.editors.stem) this.editors.stem.codemirror.focus();
+    else {
+      const selectors: Record<QuestionFormField, string> = {
+        stem: '#qfStem',
+        topicCode: '#qfTopic',
+        difficulty: '#qfDifficulty',
+        options: '.option-text',
+        correctAnswer: '.option-correct',
+      };
+      overlay.querySelector<HTMLElement>(selectors[firstField])?.focus();
+    }
+  }
+
+  private async saveQuestionForm(overlay: HTMLElement): Promise<void> {
+    this.syncFormDraftFromDOM(overlay);
+    const draft = this.formDraft;
+    if (!draft) return;
+
+    const errors = validateQuestionDraft(draft, this.formValidCodes);
+    if (Object.keys(errors).length > 0) {
+      this.showFormErrors(overlay, errors);
+      return;
+    }
+
+    try {
+      const wasEdit = Boolean(this.formQuestion);
+      const question = draftToQuestion(draft, this.formQuestion);
+      if (wasEdit) await questionsRepo.put(question);
+      else await questionsRepo.add(question);
+      this.closeQuestionForm();
+      showToast(t(wasEdit ? 'qb.updated' : 'qb.created'), 'success');
+      await this.reloadAfterMutation();
+    } catch (error) {
+      showToast(t('error.saveFailed', { error: String(error) }), 'error');
+    }
+  }
+
+  private closeQuestionForm(): void {
+    this.editors.stem?.cleanup();
+    this.editors.explanation?.cleanup();
+    this.editors = { stem: null, explanation: null };
+    const overlay = this.formOverlay;
+    this.formOverlay = null;
+    this.formDraft = null;
+    this.formQuestion = undefined;
+    if (overlay) closeModal(overlay);
+  }
+
+  /** Small accessible confirmation dialog (no blocking window.confirm). */
+  private confirmAction(message: string): Promise<boolean> {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:440px;">
+          <div class="modal-header"><h2 class="modal-title">${escapeHTML(t('common.confirm'))}</h2></div>
+          <div class="modal-body"><p style="margin:0;">${escapeHTML(message)}</p></div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="confirmCancel">${escapeHTML(t('common.cancel'))}</button>
+            <button type="button" class="btn btn-danger" id="confirmYes">${escapeHTML(t('common.delete'))}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      openModal(overlay);
+      let settled = false;
+      const finish = (result: boolean): void => {
+        if (settled) return;
+        settled = true;
+        closeModal(overlay);
+        resolve(result);
+      };
+      overlay.querySelector('#confirmYes')?.addEventListener('click', () => finish(true));
+      overlay.querySelector('#confirmCancel')?.addEventListener('click', () => finish(false));
+      overlay.addEventListener('click', event => {
+        if (event.target === overlay) finish(false);
+      });
+    });
   }
 
   private async duplicateQuestion(id: string): Promise<void> {
@@ -612,10 +1105,15 @@ export class QuestionBankView {
   }
 
   private async deleteQuestion(id: string): Promise<void> {
-    if (confirm('Hapus soal ini?')) {
-      const { questionsRepo } = await import('../db/repositories/questions');
+    if (!(await this.confirmAction(t('qb.deleteConfirm')))) return;
+    try {
       await questionsRepo.delete(id);
+      this.selectedIds.delete(id);
+      this.selectAll = false;
+      showToast(t('qb.movedToTrash'), 'success');
       await this.reloadAfterMutation();
+    } catch (error) {
+      showToast(t('error.deleteFailed', { error: String(error) }), 'error');
     }
   }
 
