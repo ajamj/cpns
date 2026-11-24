@@ -1,0 +1,47 @@
+{
+  "version": "2024.1",
+  "source": "BMKG Pengumuman No. B/KP.01.00/016/SU/XI/2024 Lampiran I",
+  "position": "Pengamat Meteorologi dan Geofisika Ahli Pertama (JF0016503)",
+  "categories": [
+    {
+      "id": "umum",
+      "label": "Kemampuan Umum",
+      "topics": [
+        {"code": "UM-01", "title": "Pengenalan ilmu meteorologi dasar", "subdomain": "meteorology", "description": "Dasar-dasar meteorologi: komposisi atmosfer, lapisan atmosfer, tekanan, suhu, kelembaban, angin, awan, curah hujan, gelombang laut"},
+        {"code": "UM-02", "title": "Pengolahan data meteorologi", "subdomain": "meteorology", "description": "Pengumpulan, validasi, kualitas data, homogenisasi, analisis statistik data observasi cuaca"},
+        {"code": "UM-03", "title": "Prediksi cuaca", "subdomain": "meteorology", "description": "Metode prediksi: numerik (NWP), statistik, nowcasting, ensemble, verifikasi prediksi"},
+        {"code": "UM-04", "title": "Pengertian ilmu klimatologi-kualitas udara dasar", "subdomain": "climatology", "description": "Unsur iklim, klasifikasi iklim, parameter kualitas udara (PM2.5, PM10, SO2, NO2, O3, CO), standar baku mutu udara"},
+        {"code": "UM-05", "title": "Prakiraan iklim ekstrim", "subdomain": "climatology", "description": "El Nino/La Nina, IOD, MJO, iklim ekstrem: kekeringan, banjir, gelombang panas, hujan ekstrem"},
+        {"code": "UM-06", "title": "Pengenalan ilmu geofisika dasar", "subdomain": "geophysics", "description": "Gempabumi, tsunami, gravitasi, magnet bumi, kelistrikan udara, tanda waktu (hilal, gerhana)"},
+        {"code": "UM-07", "title": "Sedimentologi dan stratigrafi", "subdomain": "geology", "description": "Proses sedimen, batuan sedimen, prinsip stratigrafi, korelasi stratigrafik, lingkungan sedimentasi"},
+        {"code": "UM-08", "title": "Peralatan teknologi MKG", "subdomain": "instrumentation", "description": "AWS, radar cuaca, radiosonde, seismograf, akselerograf, GNSS, lidar, ceilometer, radiometer"},
+        {"code": "UM-09", "title": "Kalibrasi peralatan teknologi MKG", "subdomain": "instrumentation", "description": "Standar kalibrasi, rastreabilitas, prosedur kalibrasi sensor suhu, tekanan, kelembaban, angin, curah hujan, seismik"}
+      ]
+    },
+    {
+      "id": "khusus",
+      "label": "Kemampuan Khusus",
+      "topics": [
+        {"code": "KH-01", "title": "Model prakiraan meteorologi", "subdomain": "meteorology", "description": "Model NWP: GFS, ECMWF, ICON, WRF; data asimilasi, parameterisasi fisika, output post-processing"},
+        {"code": "KH-02", "title": "Peralatan operasional meteorologi", "subdomain": "meteorology", "description": "Operasional stasiun: pengamatan manual/otomatis, pengkodean SYNOP/CLIMAT, transmisi GTS"},
+        {"code": "KH-03", "title": "Analisis meteorologi kompleks", "subdomain": "meteorology", "description": "Analisis sinoptik: carta tekanan, frontogenesis, siklon tropis, konvergensi, divergensi, vortisitas, omega"},
+        {"code": "KH-04", "title": "Pengolahan data klimatologi tingkat lanjutan", "subdomain": "climatology", "description": "Homogenisasi data, analisis tren, normal iklim 30-tahun, indeks iklim standar (SPI, SPEI), kualitas data"},
+        {"code": "KH-05", "title": "Analisis klimatologi kompleks", "subdomain": "climatology", "description": "Variabilitas iklim: ENSO, IOD, MJO, QBO; telekoneksi; analisis komposit; downscaling statistik/dinamis"},
+        {"code": "KH-06", "title": "Iklim ekstrim", "subdomain": "climatology", "description": "Definisi ekstrim: percentil 90/95/99; heatwave, coldwave, extreme rainfall, drought indices; impact-based forecasting"},
+        {"code": "KH-07", "title": "Teknis operasional geofisika", "subdomain": "geophysics", "description": "Operasional seismik: lokasi gempa, magnitudo, kedalaman; tsunami early warning; gravitasi/magnet survey"},
+        {"code": "KH-08", "title": "Pengolahan data geofisika", "subdomain": "geophysics", "description": "Pemrosesan waveform: filtering, picking, lokasi (hypocenter), magnitudo; noise analysis; array processing"},
+        {"code": "KH-09", "title": "Analisis geofisika kompleks", "subdomain": "geophysics", "description": "Seismotektonik: zona subduksi, patahan aktif, deformasi tanah (InSAR/GNSS), hazard assessment, PSHA"},
+        {"code": "KH-10", "title": "Pengoperasian peralatan teknologi canggih/modern", "subdomain": "instrumentation", "description": "Radar dual-pol, wind profiler, microwave radiometer, GNSS meteorology, Doppler lidar, UAV/Drone observasi"},
+        {"code": "KH-11", "title": "Pengujian peralatan teknologi MKG", "subdomain": "instrumentation", "description": "FAT/SAT, performance testing, environmental testing, EMI/EMC, reliability testing, acceptance criteria"},
+        {"code": "KH-12", "title": "Kalibrasi peralatan teknologi canggih/modern", "subdomain": "instrumentation", "description": "Kalibrasi radar (Z, Zdr, Kdp, ρhv), lidar, radiometer, GNSS; uncertainty budget; ISO 17025, traceability"}
+      ]
+    }
+  ],
+  "defaultWeights": {
+    "UM-01": 1, "UM-02": 1, "UM-03": 1, "UM-04": 1, "UM-05": 1,
+    "UM-06": 1, "UM-07": 1, "UM-08": 1, "UM-09": 1,
+    "KH-01": 1.5, "KH-02": 1.5, "KH-03": 1.5, "KH-04": 1.5,
+    "KH-05": 1.5, "KH-06": 1.5, "KH-07": 1.5, "KH-08": 1.5,
+    "KH-09": 1.5, "KH-10": 1.5, "KH-11": 1.5, "KH-12": 1.5
+  }
+}

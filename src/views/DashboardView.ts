@@ -29,13 +29,18 @@ export class DashboardView {
 
   async loadData(): Promise<void> {
     console.log('DashboardView.loadData: starting');
-    const [totalQuestions, questionsByTopic, masteryStats, recentSessions, flashcardStats] = await Promise.all([
+    const [totalQuestions, masteryStats, recentSessions, flashcardStats] = await Promise.all([
       questionsRepo.getTotalCount(),
-      questionsRepo.getCountByTopic(),
       questionsRepo.getStatsByTopic(),
       sessionsRepo.getRecent(5),
       flashcardsRepo.getStats(),
     ]);
+    // getStatsByTopic already scans the sparse topic index; deriving the topic
+    // counts from the same result avoids a second 200ms index walk at the
+    // 2000-question stress envelope.
+    const questionsByTopic = Object.fromEntries(
+      Object.entries(masteryStats).map(([topicCode, stats]) => [topicCode, stats.total])
+    );
     console.log('DashboardView.loadData: got data', { totalQuestions, masteryStatsKeys: Object.keys(masteryStats).length, recentSessionsCount: recentSessions.length, flashcardStats });
 
     const topics = masteryStats;

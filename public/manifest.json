@@ -1,0 +1,26 @@
+{
+  "name": "CPNS BMKG SKB Prep",
+  "short_name": "BMKG Prep",
+  "description": "Offline practice for CPNS BMKG Meteorology & Geophysics Observer SKB",
+  "theme_color": "#1e3a5f",
+  "background_color": "#f8fafc",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    { "src": "icons/icon-72.png", "sizes": "72x72", "type": "image/png" },
+    { "src": "icons/icon-96.png", "sizes": "96x96", "type": "image/png" },
+    { "src": "icons/icon-128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "icons/icon-144.png", "sizes": "144x144", "type": "image/png" },
+    { "src": "icons/icon-152.png", "sizes": "152x152", "type": "image/png" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-384.png", "sizes": "384x384", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Mock Exam", "short_name": "Exam", "url": "/#/mock-exam", "icons": [{ "src": "icons/exam-96.png", "sizes": "96x96" }] },
+    { "name": "Practice Weak Areas", "short_name": "Practice", "url": "/#/practice?weak=true", "icons": [{ "src": "icons/practice-96.png", "sizes": "96x96" }] },
+    { "name": "Flashcards", "short_name": "Cards", "url": "/#/flashcards", "icons": [{ "src": "icons/cards-96.png", "sizes": "96x96" }] }
+  ]
+}

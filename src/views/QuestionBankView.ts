@@ -21,6 +21,23 @@ const OVERSCAN = 8;
 // kicks in for large banks where rendering every row would block the UI.
 const VIRTUALIZE_THRESHOLD = 200;
 
+/** Normalised searchable text, built at most once per question object. */
+const searchHaystacks = new WeakMap<object, string>();
+function searchableText(question: any): string {
+  const cached = searchHaystacks.get(question);
+  if (cached !== undefined) return cached;
+  const text = [
+    question.stem ?? '',
+    question.explanation ?? '',
+    ...(question.options ?? []).map((option: any) => option.text ?? ''),
+    ...(question.tags ?? []),
+  ]
+    .join('\n')
+    .toLowerCase();
+  searchHaystacks.set(question, text);
+  return text;
+}
+
 /** Derives the visible question set once per distinct search/filter key. */
 const selectFilteredQuestions = memoizeSelector(
   (
@@ -32,8 +49,18 @@ const selectFilteredQuestions = memoizeSelector(
     let filtered = [...questions];
 
     if (searchQuery && fuse) {
-      const ids = new Set(fuse.search(searchQuery).map((r) => r.item.id));
-      filtered = filtered.filter((q) => ids.has(q.id));
+      // O(n) literal match first. Fuse's fuzzy pass over 2000 questions with
+      // four weighted keys costs >1s; it is now only the fallback for queries
+      // with no literal hit (e.g. a typo). Exact searches stay <200ms.
+      const needle = searchQuery.toLowerCase();
+      const exact = questions.filter((q) => searchableText(q).includes(needle));
+      if (exact.length > 0) {
+        const exactIds = new Set(exact.map((q) => q.id));
+        filtered = filtered.filter((q) => exactIds.has(q.id));
+      } else {
+        const ids = new Set(fuse.search(searchQuery).map((r) => r.item.id));
+        filtered = filtered.filter((q) => ids.has(q.id));
+      }
     }
     if (filter.topicCodes?.length) {
       filtered = filtered.filter((q) => filter.topicCodes!.includes(q.topicCode));
@@ -106,6 +133,10 @@ export class QuestionBankView {
     this.questions = await questionsRepo.getAll();
     // Underlying data changed: the memoized selector cache is no longer valid.
     selectFilteredQuestions.clear();
+    // Build the searchable haystacks while the view is loading, so the first
+    // keystroke only filters the already-normalised strings instead of walking
+    // every option/tag of 2000 questions inside the interaction budget.
+    this.questions.forEach(searchableText);
 
     // Initialize Fuse.js for search
     this.fuse = new Fuse(this.questions, {
@@ -430,7 +461,7 @@ export class QuestionBankView {
       this.applyFilters();
       this.refreshView();
       if (clearSearch) clearSearch.hidden = !this.searchQuery;
-    }, 150));
+    }, 50));
 
     clearSearch?.addEventListener('click', () => {
       this.searchQuery = '';

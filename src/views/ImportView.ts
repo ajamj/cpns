@@ -5,12 +5,14 @@ import { navigate, t } from '../core/i18n';
 import { showToast } from '../core/app-utils';
 import { generateId, nowISO } from '../core/utils';
 import { parseCSV } from '../core/utils';
-import type { Question } from '../shared/types';
+import type { ExportData, Question } from '../shared/types';
 
 export class ImportView {
   private params: Record<string, string>;
   private element: HTMLElement | null = null;
   private mergeStrategy: 'skip' | 'overwrite' | 'duplicate' | 'smart' = 'smart';
+  /** Full JSON backup retained so restore also covers progress and settings. */
+  private fullBackup: ExportData | null = null;
   private previewData: Question[] = [];
   private conflicts: Array<{ incoming: Question; existing: Question }> = [];
 
@@ -264,6 +266,7 @@ export class ImportView {
       if (file.name.endsWith('.json')) {
         data = JSON.parse(text);
         if (data.schemaVersion && data.data) {
+          this.fullBackup = data as ExportData;
           this.previewData = data.data.questions || [];
         } else if (Array.isArray(data)) {
           this.previewData = data;
@@ -355,11 +358,15 @@ export class ImportView {
     if (previewArea) previewArea.style.display = 'none';
     this.previewData = [];
     this.conflicts = [];
+    this.fullBackup = null;
   }
 
   private async applyImport(): Promise<void> {
     try {
-      const result = await import('../db/repositories/backup').then(m => m.backupRepo.restoreBackup({
+      // A full JSON backup is a self-contained restore (STATE.md): keep every
+      // table from the exported file, not just the previewed questions. CSV and
+      // plain question arrays still use the minimal envelope below.
+      const backup: ExportData = this.fullBackup ?? {
         schemaVersion: 1,
         exportedAt: new Date().toISOString(),
         appVersion: '1.0.0',
@@ -371,7 +378,13 @@ export class ImportView {
           settings: [],
           kisiKisi: [],
         }
-      }, { mergeStrategy: this.mergeStrategy }));
+      };
+      const result = await import('../db/repositories/backup').then(m =>
+        m.backupRepo.restoreBackup(backup, {
+          mergeStrategy: this.mergeStrategy,
+          restoreSettings: !!this.fullBackup,
+        })
+      );
 
       if (result.restored) {
         showToast(`${t('import.success', { count: result.counts.questions })}`, 'success');

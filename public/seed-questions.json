@@ -1,0 +1,853 @@
+{
+  "schemaVersion": 1,
+  "exportedAt": "2025-01-22T10:30:00Z",
+  "appVersion": "1.0.0",
+  "data": {
+    "questions": [
+      {
+        "id": "q-um01-001",
+        "topicCode": "UM-01",
+        "stem": "Lapisan atmosfer tempat terjadinya proses cuaca (awan, hujan, angin) adalah...",
+        "options": [
+          { "id": "o1", "text": "Troposfer", "isCorrect": true },
+          { "id": "o2", "text": "Stratosfer", "isCorrect": false },
+          { "id": "o3", "text": "Mesosfer", "isCorrect": false },
+          { "id": "o4", "text": "Termosfer", "isCorrect": false },
+          { "id": "o5", "text": "Eksosfer", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Troposfer adalah lapisan terendah atmosfer (0-12 km) tempat 99% massa atmosfer dan hampir semua fenomena cuaca terjadi. Suhu menurun dengan ketinggian di lapisan ini.",
+        "difficulty": 1,
+        "source": "BMKG 2024",
+        "tags": ["troposfer", "lapisan-atmosfer", "dasar-meteorologi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um01-002",
+        "topicCode": "UM-01",
+        "stem": "Gas yang paling dominan dalam komposisi atmosfer bumi adalah...",
+        "options": [
+          { "id": "o1", "text": "Oksigen (O2) ~21%", "isCorrect": false },
+          { "id": "o2", "text": "Nitrogen (N2) ~78%", "isCorrect": true },
+          { "id": "o3", "text": "Argon (Ar) ~0.93%", "isCorrect": false },
+          { "id": "o4", "text": "Karbon Dioksida (CO2) ~0.04%", "isCorrect": false },
+          { "id": "o5", "text": "Uap Air (H2O) variabel", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Atmosfer bumi terdiri dari ~78% Nitrogen (N2), ~21% Oksigen (O2), ~0.93% Argon, dan gas-gas jejak lainnya termasuk CO2 dan uap air.",
+        "difficulty": 1,
+        "source": "BMKG 2024",
+        "tags": ["komposisi-atmosfer", "nitrogen", "dasar-meteorologi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um02-001",
+        "topicCode": "UM-02",
+        "stem": "Proses penghapusan data observasi yang tidak valid atau mencurigakan dari rangkaian data time series disebut...",
+        "options": [
+          { "id": "o1", "text": "Homogenisasi", "isCorrect": false },
+          { "id": "o2", "text": "Validasi data / Quality Control", "isCorrect": true },
+          { "id": "o3", "text": "Interpolarasi", "isCorrect": false },
+          { "id": "o4", "text": "Ekstrapolasi", "isCorrect": false },
+          { "id": "o5", "text": "Normalisasi", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Validasi data (Quality Control) adalah proses memeriksa dan memvalidasi data observasi untuk mengidentifikasi data yang mencurigakan (suspect) atau eror, sebelum data digunakan untuk analisis lebih lanjut.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["validasi-data", "quality-control", "pengolahan-data"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um02-002",
+        "topicCode": "UM-02",
+        "stem": "Metode statistik untuk mendeteksi outlier dalam data observasi meteorologi adalah...",
+        "options": [
+          { "id": "o1", "text": "Z-score / Standard Score", "isCorrect": true },
+          { "id": "o2", "text": "Moving Average", "isCorrect": false },
+          { "id": "o3", "text": "Linear Regression", "isCorrect": false },
+          { "id": "o4", "text": "FFT (Fast Fourier Transform)", "isCorrect": false },
+          { "id": "o5", "text": "Principal Component Analysis", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Z-score mengukur berapa standar deviasi sebuah nilai berjarak dari mean. Nilai dengan |Z| > 3 biasanya diklasifikasikan sebagai outlier potensial dalam data meteorologi.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["outlier", "z-score", "statistik", "pengolahan-data"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um03-001",
+        "topicCode": "UM-03",
+        "stem": "Model prediksi cuaca numerik (NWP) yang digunakan operationally di BMKG untuk prediksi global adalah...",
+        "options": [
+          { "id": "o1", "text": "GFS (Global Forecast System)", "isCorrect": true },
+          { "id": "o2", "text": "WRF (Weather Research and Forecasting)", "isCorrect": false },
+          { "id": "o3", "text": "MM5", "isCorrect": false },
+          { "id": "o4", "text": "RAMS", "isCorrect": false },
+          { "id": "o5", "text": "ARPS", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "GFS (Global Forecast System) dari NCEP/NOAA adalah model global yang digunakan BMKG sebagai input boundary condition untuk model regional (WRF) dan untuk prediksi skala besar.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["nwp", "gfs", "prediksi-cuaca", "model"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um03-002",
+        "topicCode": "UM-03",
+        "stem": "Nowcasting adalah prediksi cuaca skala waktu...",
+        "options": [
+          { "id": "o1", "text": "1-6 jam ke depan (lokal)", "isCorrect": true },
+          { "id": "o2", "text": "6-12 jam ke depan", "isCorrect": false },
+          { "id": "o3", "text": "1-3 hari ke depan", "isCorrect": false },
+          { "id": "o4", "text": "3-7 hari ke depan", "isCorrect": false },
+          { "id": "o5", "text": "1-4 minggu ke depan", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Nowcasting adalah prediksi cuaca sangat pendek (0-6 jam) menggunakan data observasi real-time (radar, satelit, AWS) untuk mendeteksi perkembangan sistem cuaca skala mikro/meso.",
+        "difficulty": 1,
+        "source": "BMKG 2024",
+        "tags": ["nowcasting", "skala-waktu", "prediksi-cuaca"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um04-001",
+        "topicCode": "UM-04",
+        "stem": "Parameter kualitas udara yang menjadi indikator pencemaran dari kendaraan bermotor (knalpot) adalah...",
+        "options": [
+          { "id": "o1", "text": "SO2", "isCorrect": false },
+          { "id": "o2", "text": "CO (Karbon Monoksida)", "isCorrect": true },
+          { "id": "o3", "text": "O3 (Ozon)", "isCorrect": false },
+          { "id": "o4", "text": "PM10", "isCorrect": false },
+          { "id": "o5", "text": "NH3", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "CO (Karbon Monoksida) dihasilkan dari pembakaran tidak sempurna bahan bakar fosil, terutama dari kendaraan bermotor. Ini adalah polutan primer dari sumber mobile.",
+        "difficulty": 1,
+        "source": "Peraturan BMKG No. 11/2019",
+        "tags": ["kualitas-udara", "co", "polutan", "kendaraan"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um04-002",
+        "topicCode": "UM-04",
+        "stem": "Standar baku mutu udara ambien untuk PM2.5 (24 jam) menurut PP No. 41 Tahun 1999 adalah...",
+        "options": [
+          { "id": "o1", "text": "65 µg/m³", "isCorrect": false },
+          { "id": "o2", "text": "150 µg/m³", "isCorrect": false },
+          { "id": "o3", "text": "65 µg/m³ (PM10)", "isCorrect": false },
+          { "id": "o4", "text": "Tidak ada baku mutu PM2.5 di PP 41/1999", "isCorrect": true },
+          { "id": "o5", "text": "35 µg/m³", "isCorrect": false }
+        ],
+        "correctAnswer": [3],
+        "explanation": "PP No. 41 Tahun 1999 hanya menetapkan baku mutu untuk PM10 (150 µg/m³ 24-jam), SO2, CO, NO2, O3, HC, Pb. Baku mutu PM2.5 diatur dalam Peraturan Menteri LHK yang lebih baru (mis. Permen LHK P.15/2019: 65 µg/m³ 24-jam).",
+        "difficulty": 3,
+        "source": "PP No. 41/1999, Permen LHK P.15/2019",
+        "tags": ["baku-mutu", "pm2.5", "pm10", "regulasi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um05-001",
+        "topicCode": "UM-05",
+        "stem": "Fenomena El Niño ditandai oleh...",
+        "options": [
+          { "id": "o1", "text": "Suhu permukaan laut (SST) di Pasifik Tengah-Timur lebih dingin dari normal", "isCorrect": false },
+          { "id": "o2", "text": "Suhu permukaan laut (SST) di Pasifik Tengah-Timur lebih hangat dari normal", "isCorrect": true },
+          { "id": "o3", "text": "Tekanan udara di Darwin lebih tinggi dari Tahiti", "isCorrect": false },
+          { "id": "o4", "text": "Indeks SOI (Southern Oscillation Index) positif", "isCorrect": false },
+          { "id": "o5", "text": "Angin trade bertiup lebih kuat dari normal", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "El Niño: SST Pasifik Tengah-Timur (Nino 3.4 region) > +0.5°C dari normal. La Nina: SST < -0.5°C. SOI negatif saat El Niño, positif saat La Nina.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["el-nino", "enso", "sst", "iklim-ekstrim"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um05-002",
+        "topicCode": "UM-05",
+        "stem": "Indian Ocean Dipole (IOD) fase positif berdampak pada kondisi curah hujan di Indonesia bagian barat menjadi...",
+        "options": [
+          { "id": "o1", "text": "Lebih kering dari normal", "isCorrect": true },
+          { "id": "o2", "text": "Lebih basah dari normal", "isCorrect": false },
+          { "id": "o3", "text": "Tidak berubah", "isCorrect": false },
+          { "id": "o4", "text": "Hujan ekstrem setiap hari", "isCorrect": false },
+          { "id": "o5", "text": "Musim hujan mulai lebih awal", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "IOD positif: SST Barat Samudra Hindia (Sumatra) lebih dingin, Timur (Afrika) lebih hangat → konveksi bergeser ke barat → Indonesia bagian barat (Sumatra, Kalimantan) lebih kering, berisiko kebakaran hutan/kekerasahan.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["iod", "dipole", "curah-hujan", "iklim-ekstrim"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um06-001",
+        "topicCode": "UM-06",
+        "stem": "Gelombang primer (P-wave) dan sekunder (S-wave) pada gempabumi berbeda pada...",
+        "options": [
+          { "id": "o1", "text": "Kecepatan propagasi dan tipe gerakan partikel", "isCorrect": true },
+          { "id": "o2", "text": "Frekuensi saja", "isCorrect": false },
+          { "id": "o3", "text": "Amplitudo saja", "isCorrect": false },
+          { "id": "o4", "text": "Warna gelombang", "isCorrect": false },
+          { "id": "o5", "text": "Panjang gelombang saja", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "P-wave: gelombang longitudinal (kompresional), partikel bergerak sejajar arah propagasi, kecepatan ~6-8 km/s (lebih cepat). S-wave: gelombang transversal (geser), partikel bergerak tegak lurus arah propagasi, kecepatan ~3.5-4.5 km/s, tidak merambat melalui cairan.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["gempa", "p-wave", "s-wave", "seismologi", "geofisika-dasar"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um06-002",
+        "topicCode": "UM-06",
+        "stem": "Magnitudo gempa (Mw) dihitung berdasarkan...",
+        "options": [
+          { "id": "o1", "text": "Amplitudo maksimum pada seismogram", "isCorrect": false },
+          { "id": "o2", "text": "Moment seismic (Mo) = μ × A × D", "isCorrect": true },
+          { "id": "o3", "text": "Durasi getaran", "isCorrect": false },
+          { "id": "o4", "text": "Jarak episentrum ke stasiun", "isCorrect": false },
+          { "id": "o5", "text": "Kedalaman hiposentrum", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Moment Magnitude (Mw) = 2/3 log10(Mo) - 6.07, dengan Mo = Moment Seismic = μ (modulus geser) × A (luas patahan) × D (slip rata-rata). Mw adalah skala magnitudo yang paling andal untuk gempa besar.",
+        "difficulty": 3,
+        "source": "BMKG 2024",
+        "tags": ["magnitudo", "mw", "moment-seismic", "seismologi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um07-001",
+        "topicCode": "UM-07",
+        "stem": "Prinsip Superposisi dalam stratigrafi menyatakan bahwa...",
+        "options": [
+          { "id": "o1", "text": "Lapisan batuan yang lebih tua berada di atas lapisan yang lebih muda", "isCorrect": false },
+          { "id": "o2", "text": "Lapisan batuan yang lebih tua berada di bawah lapisan yang lebih muda (jika tidak terganggu)", "isCorrect": true },
+          { "id": "o3", "text": "Semua lapisan batuan memiliki umur yang sama", "isCorrect": false },
+          { "id": "o4", "text": "Batuan beku selalu lebih tua dari batuan sedimen di atasnya", "isCorrect": false },
+          { "id": "o5", "text": "Fosil tidak bisa digunakan untuk korelasi umur", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Hukum Superposisi (Nicolaus Steno, 1669): dalam urutan batuan sedimen yang tidak terdeformasi, lapisan di bawah lebih tua dari lapisan di atasnya. Dasar korelasi stratigrafi relatif.",
+        "difficulty": 1,
+        "source": "BMKG 2024",
+        "tags": ["stratigrafi", "superposisi", "sedimentologi", "geologi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um07-002",
+        "topicCode": "UM-07",
+        "stem": "Batuan sedimen yang terbentuk dari endapan lumpur (partikel < 1/256 mm) disebut...",
+        "options": [
+          { "id": "o1", "text": "Batu pasir (Sandstone)", "isCorrect": false },
+          { "id": "o2", "text": "Batu lumpur (Mudstone/Shale)", "isCorrect": true },
+          { "id": "o3", "text": "Konglomerat", "isCorrect": false },
+          { "id": "o4", "text": "Batu kapur (Limestone)", "isCorrect": false },
+          { "id": "o5", "text": "Breksi", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Berdasarkan ukuran butiran (skala Wentworth): lumpur/clay < 1/256 mm → Mudstone/Shale. Batu pasir: 1/16 - 2 mm. Konglomerat/Breksi: > 2 mm.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["batuan-sedimen", "mudstone", "ukuran-butiran", "sedimentologi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um08-001",
+        "topicCode": "UM-08",
+        "stem": "Alat ukur kecepatan dan arah angin yang menggunakan prinsip Doppler adalah...",
+        "options": [
+          { "id": "o1", "text": "Anemometer cangkir (Cup anemometer)", "isCorrect": false },
+          { "id": "o2", "text": "Anemometer ultrasonik (Ultrasonic anemometer)", "isCorrect": true },
+          { "id": "o3", "text": "Anemometer propeller", "isCorrect": false },
+          { "id": "o4", "text": "Wind vane (Katak angin)", "isCorrect": false },
+          { "id": "o5", "text": "Pitot tube", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Anemometer ultrasonik mengukur waktu tempuh pulsa suara antar transducer. Perbedaan waktu tempuh (Doppler effect) memberikan kecepatan angin 3D (u, v, w) tanpa bagian bergerak, cocok untuk AWS modern.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["anemometer", "ultrasonik", "doppler", "aws", "peralatan-mkg"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um08-002",
+        "topicCode": "UM-08",
+        "stem": "Radar cuaca Doppler dapat mengukur parameter yang TIDAK bisa diukur radar konvensional (non-Doppler), yaitu...",
+        "options": [
+          { "id": "o1", "text": "Reflektivitas (Z)", "isCorrect": false },
+          { "id": "o2", "text": "Kecepatan radial (Radial velocity / Vr)", "isCorrect": true },
+          { "id": "o3", "text": "Panjang gelombang", "isCorrect": false },
+          { "id": "o4", "text": "Polarisasi horizontal", "isCorrect": false },
+          { "id": "o5", "text": "Curah hujan estimasi", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Radar Doppler mengukur geseran frekuensi (Doppler shift) dari pulsa yang dipantulkan partikel hujan → kecepatan radial (Vr). Radar non-Doppler hanya mengukur reflektivitas (Z) dan posisi.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["radar", "doppler", "radial-velocity", "reflektivitas"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um09-001",
+        "topicCode": "UM-09",
+        "stem": "Rastreabilitas kalibrasi berarti...",
+        "options": [
+          { "id": "o1", "text": "Alat ukur dikembalikan ke pabrik setiap tahun", "isCorrect": false },
+          { "id": "o2", "text": "Hasil pengukuran dapat dikaitkan ke standar nasional/ internasional melalui rantai kalibrasi yang tidak terputus", "isCorrect": true },
+          { "id": "o3", "text": "Kalibrasi dilakukan oleh dua orang yang berbeda", "isCorrect": false },
+          { "id": "o4", "text": "Menggunakan standar sekunder saja", "isCorrect": false },
+          { "id": "o5", "text": "Kalibrasi internal tanpa sertifikat", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Rastreabilitas (traceability) per ISO/IEC 17025: properti hasil pengukuran/standar dapat dikaitkan ke referensi yang ditetapkan (standar nasional/internasional SI) melalui rantai kalibrasi yang tidak terputus, masing-masing dengan ketidakpastian yang dinyatakan.",
+        "difficulty": 2,
+        "source": "Peraturan Kepala BMKG No. 2/2024, ISO 17025",
+        "tags": ["kalibrasi", "rastreabilitas", "traceability", "iso-17025", "standar"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-um09-002",
+        "topicCode": "UM-09",
+        "stem": "Kalibrasi sensor suhu termometer merkuri menggunakan titik beku air (0°C) dan titik didih air (100°C) pada tekanan standar adalah contoh kalibrasi menggunakan...",
+        "options": [
+          { "id": "o1", "text": "Titik tetap (Fixed point) ITS-90", "isCorrect": true },
+          { "id": "o2", "text": "Perbandingan dengan standar sekunder", "isCorrect": false },
+          { "id": "o3", "text": "Metode simulasi", "isCorrect": false },
+          { "id": "o4", "text": "Kalibrasi lapangan (field calibration)", "isCorrect": false },
+          { "id": "o5", "text": "Verifikasi, bukan kalibrasi", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Titik beku air (0.01°C, Triple Point of Water) dan titik didih air (100°C pada 101.325 kPa) adalah titik tetap (fixed points) pada International Temperature Scale of 1990 (ITS-90) yang digunakan untuk kalibrasi termometer standar.",
+        "difficulty": 2,
+        "source": "ITS-90, Peraturan Kepala BMKG No. 2/2024",
+        "tags": ["kalibrasi", "suhu", "fixed-point", "its-90", "termometer"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh01-001",
+        "topicCode": "KH-01",
+        "stem": "Proses Data Asimilasi dalam NWP bertujuan untuk...",
+        "options": [
+          { "id": "o1", "text": "Menggabungkan observasi dengan background field (first guess) untuk menghasilkan analisis initial condition terbaik", "isCorrect": true },
+          { "id": "o2", "text": "Mengubah output model menjadi format yang mudah dibaca", "isCorrect": false },
+          { "id": "o3", "text": "Mengkompresi data model untuk penghematan storage", "isCorrect": false },
+          { "id": "o4", "text": "Validasi output model terhadap observasi", "isCorrect": false },
+          { "id": "o5", "text": "Menjalankan model ensemble", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Data Asimilasi (3D-Var, 4D-Var, EnKF) menggabungkan observasi (heterogen, tidak teratur) dengan background field (first guess dari forecast sebelumnya) menggunakan metode statistik (optimal interpolation) untuk menghasilkan analisis (initial condition) yang seimbang secara dinamis dan termodinamis.",
+        "difficulty": 3,
+        "source": "BMKG 2024",
+        "tags": ["data-asimilasi", "nwp", "initial-condition", "3dvar", "4dvar", "enkf"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh01-002",
+        "topicCode": "KH-01",
+        "stem": "Parameterisasi konveksi dalam model NWP diperlukan karena...",
+        "options": [
+          { "id": "o1", "text": "Skala grid model terlalu kasar untuk me-resolusi konveksi individual (sub-grid scale)", "isCorrect": true },
+          { "id": "o2", "text": "Model tidak bisa menghitung suhu", "isCorrect": false },
+          { "id": "o3", "text": "Konveksi tidak penting untuk cuaca", "isCorrect": false },
+          { "id": "o4", "text": "Untuk mempercepat komputasi saja", "isCorrect": false },
+          { "id": "o5", "text": "Menggantikan persamaan Navier-Stokes", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Konveksi skala kumulus (~1-10 km) lebih kecil dari grid model global (~10-25 km) dan regional (~3-4 km). Parameterisasi (mis. Tiedtke, Kain-Fritsch, Arakawa-Schubert) merepresentasikan efek kolektif konveksi pada skala grid yang lebih besar (heating profile, moisture transport, detrainment).",
+        "difficulty": 3,
+        "source": "BMKG 2024",
+        "tags": ["parameterisasi", "konveksi", "sub-grid", "nwp", "model-fisika"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh02-001",
+        "topicCode": "KH-02",
+        "stem": "Kode SYNOP digunakan untuk...",
+        "options": [
+          { "id": "o1", "text": "Pelaporan data observasi cuaca permukaan secara internasional melalui GTS", "isCorrect": true },
+          { "id": "o2", "text": "Pelaporan data radar cuaca", "isCorrect": false },
+          { "id": "o3", "text": "Pelaporan data satelit", "isCorrect": false },
+          { "id": "o4", "text": "Pelaporan data radiosonde", "isCorrect": false },
+          { "id": "o5", "text": "Pelaporan data kualitas udara", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "SYNOP (Surface Synoptic Observations) adalah kode WMO (FM-12) untuk melaporkan observasi cuaca permukaan (suhu, tekanan, angin, awan, curah hujan, visibilitas, cuaca signifikan) setiap 3 atau 6 jam melalui GTS (Global Telecommunication System).",
+        "difficulty": 2,
+        "source": "WMO Manual on Codes, BMKG 2024",
+        "tags": ["synop", "gts", "wmo", "observasi", "kode"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh02-002",
+        "topicCode": "KH-02",
+        "stem": "Radiosonde mengukur profil vertikal atmosfer. Parameter yang TIDAK diukur langsung oleh radiosonde standar adalah...",
+        "options": [
+          { "id": "o1", "text": "Suhu", "isCorrect": false },
+          { "id": "o2", "text": "Kelembaban (Relative Humidity)", "isCorrect": false },
+          { "id": "o3", "text": "Tekanan", "isCorrect": false },
+          { "id": "o4", "text": "Kecepatan angin (via GPS tracking)", "isCorrect": false },
+          { "id": "o5", "text": "Konsentrasi Ozon (O3)", "isCorrect": true }
+        ],
+        "correctAnswer": [4],
+        "explanation": "Radiosonde standar (Vaisala RS41, Graw DFM, Meisei) mengukur suhu, kelembaban, tekanan, posisi GPS (untuk angin). Ozon membutuhkan sensor khusus (ECC ozonesonde) yang terpisah.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["radiosonde", "profil-vertikal", "ozon", "sensor"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh03-001",
+        "topicCode": "KH-03",
+        "stem": "Vortisitas absolut (η) = Vortisitas relatif (ζ) + Vortisitas planetarium (f). Pada skala sinoptik di belahan utara, vortisitas planetarium (Coriolis parameter) adalah...",
+        "options": [
+          { "id": "o1", "text": "Positif (f > 0)", "isCorrect": true },
+          { "id": "o2", "text": "Negatif (f < 0)", "isCorrect": false },
+          { "id": "o3", "text": "Nol (f = 0)", "isCorrect": false },
+          { "id": "o4", "text": "Tergantung pada muson", "isCorrect": false },
+          { "id": "o5", "text": "Konstan di seluruh belahan bumi", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Parameter Coriolis f = 2Ω sin φ. Di belahan utara (φ > 0), sin φ > 0 → f > 0 (positif). Di belahan selatan f < 0. Di khatulistiwa f = 0. Ini menentukan arah putaran siklon (counter-clockwise di Utara, clockwise di Selatan).",
+        "difficulty": 3,
+        "source": "BMKG 2024",
+        "tags": ["vortisitas", "coriolis", "f-parameter", "analisis-sinoptik", "belahan-utara"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh03-002",
+        "topicCode": "KH-03",
+        "stem": "Persamaan Omega (ω) digunakan untuk mendiagnosa gerakan vertikal (omega) dari medan angin dan suhu. Sumber utama gerakan naik (ω negatif) pada skala sinoptik adalah...",
+        "options": [
+          { "id": "o1", "text": "Adveksi vortisitas positif (PVA) di atas level 500 hPa", "isCorrect": true },
+          { "id": "o2", "text": "Adveksi suhu dingin di level 850 hPa", "isCorrect": false },
+          { "id": "o3", "text": "Divergensi di level 850 hPa", "isCorrect": false },
+          { "id": "o4", "text": "Konvergensi di level 200 hPa", "isCorrect": false },
+          { "id": "o5", "text": "Radiasi matahari", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Persamaan Omega QG: ∇²ω + f² ∂²ω/∂p² = -f ∂/∂p [Vg·∇(ζg+f)] + ... Sumber utama: PVA (Positive Vorticity Advection) meningkat dengan ketinggian → forcing naik (ω < 0). Cold Air Advection (CAA) di level bawah juga kontribusi tapi lebih lemah.",
+        "difficulty": 3,
+        "source": "BMKG 2024",
+        "tags": ["persamaan-omega", "pva", "gerakan-vertikal", "qg-theory", "analisis-sinoptik"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh04-001",
+        "topicCode": "KH-04",
+        "stem": "Standardized Precipitation Index (SPI) menghitung probabilitas curah hujan dengan asumsi distribusi...",
+        "options": [
+          { "id": "o1", "text": "Normal (Gaussian)", "isCorrect": false },
+          { "id": "o2", "text": "Gamma", "isCorrect": true },
+          { "id": "o3", "text": "Poisson", "isCorrect": false },
+          { "id": "o4", "text": "Uniform", "isCorrect": false },
+          { "id": "o5", "text": "Exponential", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "SPI (McKee et al., 1993) mengasumsikan curah hujan mengikuti distribusi Gamma (dua parameter: shape, scale) yang kemudian ditransformasikan ke distribusi normal standar (mean=0, std=1). SPI < -1.0 = kekeringan sedang, < -1.5 = parah, < -2.0 = ekstrim.",
+        "difficulty": 3,
+        "source": "BMKG 2024, McKee et al. 1993",
+        "tags": ["spi", "gamma", "kekeringan", "indeks-iklim", "distribusi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh04-002",
+        "topicCode": "KH-04",
+        "stem": "Homogenisasi data klimatologi (mis. menggunakan metode MASH, RHtests, atau ACMANT) bertujuan untuk...",
+        "options": [
+          { "id": "o1", "text": "Menghapus data yang hilang", "isCorrect": false },
+          { "id": "o2", "text": "Mendeteksi dan mengoreksi inhomogenitas (breakpoint) akibat perpindahan stasiun, perubahan instrumen, atau lingkungan", "isCorrect": true },
+          { "id": "o3", "text": "Mengubah resolusi temporal data", "isCorrect": false },
+          { "id": "o4", "text": "Menghitung normal iklim 30-tahun", "isCorrect": false },
+          { "id": "o5", "text": "Mengkonversi satuan pengukuran", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Inhomogenitas: perubahan artifisial (non-iklim) dalam rangkaian waktu karena perpindahan lokasi stasiun, ganti instrumen, perubahan metode observasi, urbanisasi. Homogenisasi mendeteksi breakpoint (statistik: SNHT, Pettitt, Buishand) dan menyesuaikan (adjust) data sebelum/sesudah breakpoint.",
+        "difficulty": 3,
+        "source": "BMKG 2024, WMO Guidelines",
+        "tags": ["homogenisasi", "breakpoint", "mash", "rhtests", "acmant", "data-iklim"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh05-001",
+        "topicCode": "KH-05",
+        "stem": "Telekonsekni ENSO ke curah hujan Indonesia: selama El Niño, mekanisme utama penurunan curah hujan di Indonesia adalah...",
+        "options": [
+          { "id": "o1", "text": "Pergeseran konveksi (Walker Circulation) ke Pasifik Tengah, mengurangi konveksi di Indonesia", "isCorrect": true },
+          { "id": "o2", "text": "Penguatan angin muson barat", "isCorrect": false },
+          { "id": "o3", "text": "Peningkatan SST di Samudra Hindia", "isCorrect": false },
+          { "id": "o4", "text": "Perubahan orbit bumi", "isCorrect": false },
+          { "id": "o5", "text": "Aktivitas vulkanik", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "El Niño: SST Pasifik Timur hangat → cabang naik Walker Circulation bergeser ke timur → cabang turun di Indonesia/Barat Pasifik → subsidence (udara turun) → tekanan tinggi permukaan → konveksi ditekan → curah hujan berkurang signifikan (kekeringan).",
+        "difficulty": 3,
+        "source": "BMKG 2024",
+        "tags": ["enso", "telekonsekni", "walker-circulation", "el-nino", "curah-hujan"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh05-002",
+        "topicCode": "KH-05",
+        "stem": "Downscaling statistik untuk proyeksi iklim menggunakan hubungan antara...",
+        "options": [
+          { "id": "o1", "text": "Variabel besar skala (predictor: SST, MSLP, Z500) dan variabel lokal (predictand: curah hujan, suhu)", "isCorrect": true },
+          { "id": "o2", "text": "Model global dan model regional tanpa observasi", "isCorrect": false },
+          { "id": "o3", "text": "Data satelit dan data radar saja", "isCorrect": false },
+          { "id": "o4", "text": "Data historis dan data masa depan tanpa model", "isCorrect": false },
+          { "id": "o5", "text": "Parameter radiasi dan parameter turbulensi", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Downscaling statistik (regression, canonical correlation analysis, neural networks, analogs) membangun hubungan empiris antara predictor skala besar (dari GCM) dan predictand lokal (observasi stasiun). Asumsi: hubungan stationer di masa depan (stationarity assumption).",
+        "difficulty": 3,
+        "source": "BMKG 2024",
+        "tags": ["downscaling", "statistik", "predictor", "predictand", "proyeksi-iklim"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh06-001",
+        "topicCode": "KH-06",
+        "stem": "Definisi Heatwave (gelombang panas) menurut WMO/BMKG biasanya menggunakan kriteria...",
+        "options": [
+          { "id": "o1", "text": "Suhu maksimum > 35°C selama 3 hari berturut-turut", "isCorrect": false },
+          { "id": "o2", "text": "Suhu maksimum > percentil 90/95/98 dari klimatologi selama minimal 3-5 hari berturut-turut", "isCorrect": true },
+          { "id": "o3", "text": "Suhu rata-rata harian > 30°C selama 1 minggu", "isCorrect": false },
+          { "id": "o4", "text": "Heat Index > 40°C selama 2 hari", "isCorrect": false },
+          { "id": "o5", "text": "Suhu minimum tidak turun di bawah 25°C", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Heatwave didefinisikan relatif terhadap klimatologi lokal (percentile-based), bukan threshold absolut. WMO: suhu maksimum > percentil 90/95/98 selama ≥ 3-5 hari. BMKG menggunakan definisi serupa dengan penyesuaian lokal. Absolute threshold (35°C) tidak cocok untuk wilayah dengan klimatologi berbeda.",
+        "difficulty": 2,
+        "source": "WMO, BMKG 2024",
+        "tags": ["heatwave", "percentile", "iklim-ekstrim", "definisi", "wmo"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh06-002",
+        "topicCode": "KH-06",
+        "stem": "Indeks kekeringan yang mempertimbangkan baik curah hujan maupun evapotranspirasi potensial (PET) adalah...",
+        "options": [
+          { "id": "o1", "text": "SPI (Standardized Precipitation Index)", "isCorrect": false },
+          { "id": "o2", "text": "SPEI (Standardized Precipitation Evapotranspiration Index)", "isCorrect": true },
+          { "id": "o3", "text": "PDSI (Palmer Drought Severity Index)", "isCorrect": false },
+          { "id": "o4", "text": "SPI hanya curah hujan, SPEI hanya suhu", "isCorrect": false },
+          { "id": "o5", "text": "CMI (Crop Moisture Index)", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "SPEI (Vicente-Serrano et al., 2010) = SPI yang dimodifikasi dengan memasukkan PET (Penman-Monteith) sebagai komponen water balance (P - PET). Lebih sensitif terhadap pemanasan global karena PET meningkat dengan suhu. PDSI juga pakai water balance tapi lebih kompleks dan kurang fleksibel skala waktu.",
+        "difficulty": 3,
+        "source": "BMKG 2024, Vicente-Serrano 2010",
+        "tags": ["spei", "spi", "pet", "kekeringan", "evapotranspirasi", "water-balance"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh07-001",
+        "topicCode": "KH-07",
+        "stem": "InaTEWS (Indonesian Tsunami Early Warning System) mengeluarkan peringatan dini tsunami berdasarkan parameter...",
+        "options": [
+          { "id": "o1", "text": "Magnitudo gempa (Mw) ≥ 7.0, kedalaman dangkal (< 70 km), dan lokasi epicentrum di laut", "isCorrect": true },
+          { "id": "o2", "text": "Hanya magnitudo gempa > 6.0", "isCorrect": false },
+          { "id": "o3", "text": "Hanya kedalaman gempa < 50 km", "isCorrect": false },
+          { "id": "o4", "text": "Intensitas getaran (MMI) di darat", "isCorrect": false },
+          { "id": "o5", "text": "Durasi getaran > 60 detik", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "InaTEWS (BMKG): Kriteria Tsunami Warning: Mw ≥ 7.0, kedalaman ≤ 70 km, epicentrum di laut. Jika Mw 6.5-7.0: Tsunami Watch. Jika Mw < 6.5: No Tsunami Threat. Konfirmasi tsunami dari tide gauge/buoy DART sebelum Final Warning/ Cancellation.",
+        "difficulty": 2,
+        "source": "BMKG 2024, InaTEWS SOP",
+        "tags": ["inatews", "tsunami", "early-warning", "mw", "kedalaman"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh07-002",
+        "topicCode": "KH-07",
+        "stem": "Metode lokasi hiposentrum gempa yang menggunakan waktu tiba P dan S pada minimal 3 stasiun seismik adalah...",
+        "options": [
+          { "id": "o1", "text": "Metode Wadati", "isCorrect": false },
+          { "id": "o2", "text": "Metode Geiger / Least Squares (Hypo71, Hypoinverse, NonLinLoc)", "isCorrect": true },
+          { "id": "o3", "text": "Metode array processing", "isCorrect": false },
+          { "id": "o4", "text": "Metode back-projection", "isCorrect": false },
+          { "id": "o5", "text": "Metode moment tensor inversion", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Metode Geiger (iterative least squares) meminimalkan residual waktu tiba (observed - calculated) untuk menghitung hiposentrum (lat, lon, depth, origin time). Membutuhkan minimal 3 stasiun (4 untuk depth). Standar operasi BMKG: Hypo71, Hypoinverse, NonLinLoc.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["lokasi-gempa", "geiger", "hiposentrum", "waktu-tiba", "seismik"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh08-001",
+        "topicCode": "KH-08",
+        "stem": "Filter Bandpass pada pemrosesan data seismik berguna untuk...",
+        "options": [
+          { "id": "o1", "text": "Menghapus noise di luar frekuensi sinyal gempa (mis. 0.5-20 Hz untuk gempa lokal)", "isCorrect": true },
+          { "id": "o2", "text": "Memperbesar amplitudo seluruh sinyal", "isCorrect": false },
+          { "id": "o3", "text": "Mengubah domain waktu ke frekuensi", "isCorrect": false },
+          { "id": "o4", "text": "Mendeteksi polaritas first motion", "isCorrect": false },
+          { "id": "o5", "text": "Menghitung magnitudo", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Bandpass filter (mis. Butterworth 2nd-4th order) mempertahankan frekuensi sinyal gempa (lokal: 0.5-20 Hz, regional: 0.1-5 Hz, teleseismic: 0.01-1 Hz) sambil menekan noise mikro-seismik (<0.1 Hz), noise kultur (>20 Hz), dan drift instrumental.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["filter", "bandpass", "seismik", "pemrosesan", "noise"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh08-002",
+        "topicCode": "KH-08",
+        "stem": "Picking (penentuan waktu tiba) fase P dan S pada seismogram modern biasanya menggunakan algoritma...",
+        "options": [
+          { "id": "o1", "text": "STA/LTA (Short-Term Average / Long-Term Average)", "isCorrect": true },
+          { "id": "o2", "text": "FFT (Fast Fourier Transform)", "isCorrect": false },
+          { "id": "o3", "text": "Cross-correlation dengan template", "isCorrect": false },
+          { "id": "o4", "text": "Manual visual saja", "isCorrect": false },
+          { "id": "o5", "text": "Hilbert Transform", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "STA/LTA: rasio energi jangka pendek (STA, ~0.5-1 detik) terhadap energi jangka panjang (LTA, ~10-30 detik). Ketika rasio melebihi threshold (trigger), fase terdeteksi. Dasar picker otomatis (SeisComP, Earthworm, Antelope). Diperbaiki dengan AIC, kurtosis, atau deep learning (PhaseNet, EQTransformer).",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["picking", "sta-lta", "fase-p", "fase-s", "otomatis", "seismogram"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh09-001",
+        "topicCode": "KH-09",
+        "stem": "Probabilistic Seismic Hazard Analysis (PSHA) menghasilkan...",
+        "options": [
+          { "id": "o1", "text": "Peta gempa historis", "isCorrect": false },
+          { "id": "o2", "text": "Peta kecurigan gempa (seismicity map)", "isCorrect": false },
+          { "id": "o3", "text": "Peta PGA/SA dengan probabilitas melebihi nilai tertentu dalam periode waktu (mis. 10% in 50 years)", "isCorrect": true },
+          { "id": "o4", "text": "Lokasi hiposentrum gempa masa depan", "isCorrect": false },
+          { "id": "o5", "text": "Waktu terjadinya gempa besar berikutnya", "isCorrect": false }
+        ],
+        "correctAnswer": [2],
+        "explanation": "PSHA (Cornell, 1968): mengintegrasikan semua sumber gempa (seismogenic zones, faults), model attenuasi (GMPE), dan recurrence rate untuk menghitung probabilitas ground motion (PGA, SA) melebihi threshold dalam waktu tertentu. Output: Hazard Curve (annual frequency of exceedance vs PGA) dan Hazard Map (spasial).",
+        "difficulty": 3,
+        "source": "BMKG 2024, Cornell 1968",
+        "tags": ["psha", "hazard", "pga", "gmpe", "probabilistik", "seismic-hazard"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh09-002",
+        "topicCode": "KH-09",
+        "stem": "InSAR (Interferometric SAR) dapat mengukur deformasi tanah dengan presisi hingga...",
+        "options": [
+          { "id": "o1", "text": "Meter", "isCorrect": false },
+          { "id": "o2", "text": "Desimeter", "isCorrect": false },
+          { "id": "o3", "text": "Sentimeter", "isCorrect": true },
+          { "id": "o4", "text": "Milimeter", "isCorrect": false },
+          { "id": "o5", "text": "Mikrometer", "isCorrect": false }
+        ],
+        "correctAnswer": [2],
+        "explanation": "InSAR (DInSAR, PSInSAR, SBAS) mengukur perubahan fase radar antar dua akuisisi → deformasi Line-of-Sight (LOS) dengan presisi ~1-2 cm (sentimeter) untuk DInSAR, hingga ~1-2 mm untuk PSInSAR/SBAS time series. Digunakan untuk deformasi vulkanik, subsidiensi, deformasi patahan, gempa.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["insar", "deformasi", "presisi", "sar", "interferometri", "psinsar"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh10-001",
+        "topicCode": "KH-10",
+        "stem": "Radar Dual-Pol (Dual-Polarization) mengirim dan menerima pulsa dengan polarisasi...",
+        "options": [
+          { "id": "o1", "text": "Horizontal (H) dan Vertikal (V) secara bersamaan atau bergantian", "isCorrect": true },
+          { "id": "o2", "text": "Hanya Horizontal (H)", "isCorrect": false },
+          { "id": "o3", "text": "Hanya Vertikal (V)", "isCorrect": false },
+          { "id": "o4", "text": "Sirkular (LHCP dan RHCP)", "isCorrect": false },
+          { "id": "o5", "text": "Elips (Elliptical)", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Dual-pol radar (S-band/C-band) transmisi H dan V (simultan: SHV, atau bergantian: FHV) → menerima HH, VV, HV, VH. Produk dual-pol: Zdr (Differential Reflectivity), Kdp (Specific Differential Phase), ρhv (Correlation Coefficient) → diskriminasi tipe hidrometeor (hujan, salju, graupel, debris), estimasi curah hujan lebih akurat, deteksi non-meteorological echoes.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["radar", "dual-pol", "polarisasi", "zdr", "kdp", "rhohv", "hidrometeor"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh10-002",
+        "topicCode": "KH-10",
+        "stem": "GNSS Meteorology menggunakan sinyal GNSS (GPS, GLONASS, Galileo, BeiDou) untuk mengambil parameter atmosfer...",
+        "options": [
+          { "id": "o1", "text": "Zenith Total Delay (ZTD) → Precipitable Water Vapor (PWV)", "isCorrect": true },
+          { "id": "o2", "text": "Suhu permukaan langsung", "isCorrect": false },
+          { "id": "o3", "text": "Curah hujan instan", "isCorrect": false },
+          { "id": "o4", "text": "Kecepatan angin 10m", "isCorrect": false },
+          { "id": "o5", "text": "Tekanan udara stasiun", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "Sinyal GNSS mengalami delay (ZTD) saat melewati troposfer. ZTD = ZHD (hydrostatic, dari tekanan) + ZWD (wet delay). ZWD → PWV (Precipitable Water Vapor) via faktor konversi (Π). PWV adalah total uap air dalam kolom atmosfer → data asimilasi NWP, nowcasting hujan ekstrem, monitoring iklim.",
+        "difficulty": 2,
+        "source": "BMKG 2024",
+        "tags": ["gnss", "meteorology", "ztd", "pwv", "uap-air", "data-asimilasi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh11-001",
+        "topicCode": "KH-11",
+        "stem": "FAT (Factory Acceptance Test) dan SAT (Site Acceptance Test) pada peralatan MKG berbeda pada...",
+        "options": [
+          { "id": "o1", "text": "FAT di pabrik sebelum pengiriman, SAT di lokasi instalasi setelah pemasangan", "isCorrect": true },
+          { "id": "o2", "text": "FAT oleh vendor, SAT oleh BMKG saja", "isCorrect": false },
+          { "id": "o3", "text": "FAT untuk hardware, SAT untuk software", "isCorrect": false },
+          { "id": "o4", "text": "FAT wajib, SAT opsional", "isCorrect": false },
+          { "id": "o5", "text": "Tidak ada perbedaan, sama saja", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "FAT: pengujian di pabrik vendor sebelum shipment (functional, performance, environmental per spec). SAT: pengujian di site setelah instalasi, integrasi dengan sistem existing, kondisi lingkungan aktual. Keduanya wajib dalam procurement BMKG. Dokumen: FAT/SAT Procedure, Test Report, Certificate of Conformance.",
+        "difficulty": 2,
+        "source": "Peraturan Kepala BMKG No. 2/2024, BMKG Procurement SOP",
+        "tags": ["fat", "sat", "pengujian", "procurement", "peralatan-mkg", "acceptance"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh11-002",
+        "topicCode": "KH-11",
+        "stem": "Pengujian EMI/EMC (Electromagnetic Interference/Compatibility) pada peralatan radar cuaca bertujuan memastikan...",
+        "options": [
+          { "id": "o1", "text": "Radar tidak mengganggu peralatan lain dan tidak diganggu oleh emisi elektromagnetik lingkungan", "isCorrect": true },
+          { "id": "o2", "text": "Radar bisa mendeteksi EMI dari petir", "isCorrect": false },
+          { "id": "o3", "text": "Radar kompatibel dengan software BMKG", "isCorrect": false },
+          { "id": "o4", "text": "Konsumsi daya radar efisien", "isCorrect": false },
+          { "id": "o5", "text": "Antenna radar berputar stabil", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "EMI/EMC testing (per IEC 61000, MIL-STD-461): Emissions (radiated/conducted) < limit → tidak mengganggu sistem lain (komunikasi, navigasi, medis). Immunity (susceptibility) > threshold → tahan terhadap gangguan lingkungan (petir, radio, listrik, ESD, EMP, NEMP). Krusial untuk radar high-power (kW-MW) di lingkungan urban/bandara.",
+        "difficulty": 3,
+        "source": "IEC 61000, MIL-STD-461, BMKG 2024",
+        "tags": ["emi", "emc", "radar", "electromagnetic", "compatibility", "immunity"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh12-001",
+        "topicCode": "KH-12",
+        "stem": "Kalibrasi Radar Dual-Pol melibatkan parameter Z, Zdr, Kdp, ρhv. Parameter yang paling sensitif terhadap bentuk partikel (hidrometeor) adalah...",
+        "options": [
+          { "id": "o1", "text": "Z (Reflektivitas)", "isCorrect": false },
+          { "id": "o2", "text": "Zdr (Differential Reflectivity)", "isCorrect": true },
+          { "id": "o3", "text": "Kdp (Specific Differential Phase)", "isCorrect": false },
+          { "id": "o4", "text": "ρhv (Correlation Coefficient)", "isCorrect": false },
+          { "id": "o5", "text": "Semuanya sama sensitif", "isCorrect": false }
+        ],
+        "correctAnswer": [1],
+        "explanation": "Zdr = 10 log10(Zhh/Zvv) sensitif terhadap aspect ratio partikel (bentuk). Hujan besar (oblate) → Zdr > 0 (1-5 dB). Salju/grupel (spherical) → Zdr ~ 0 dB. Kristal es (pristine) → Zdr bisa negatif. Z sensitif terhadap D⁶ (diameter), Kdp sensitif terhadap jumlah & ukuran, ρhv sensitif terhadap keberagaman tipe partikel.",
+        "difficulty": 3,
+        "source": "BMKG 2024, Bringi & Chandrasekar 2001",
+        "tags": ["radar", "dual-pol", "zdr", "kalibrasi", "hidrometeor", "aspect-ratio"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      },
+      {
+        "id": "q-kh12-002",
+        "topicCode": "KH-12",
+        "stem": "Uncertainty Budget (Beban Ketidakpastian) dalam kalibrasi per ISO/IEC 17025 dan JCGM 100:2008 (GUM) mencakup komponen tipe A dan tipe B. Tipe A dievaluasi dengan metode...",
+        "options": [
+          { "id": "o1", "text": "Statistik (standar deviasi dari pengulangan pengukuran)", "isCorrect": true },
+          { "id": "o2", "text": "Penilaian engineering judgment", "isCorrect": false },
+          { "id": "o3", "text": "Sertifikat kalibrasi standar referensi", "isCorrect": false },
+          { "id": "o4", "text": "Spesifikasi pabrik (datasheet)", "isCorrect": false },
+          { "id": "o5", "text": "Pengalaman operator", "isCorrect": false }
+        ],
+        "correctAnswer": [0],
+        "explanation": "GUM (Guide to Uncertainty in Measurement): Tipe A = evaluasi statistik dari pengulangan observasi (n ≥ 10), u_A = s/√n. Tipe B = evaluasi non-statistik: sertifikat standar, spesifikasi, pengalaman, data handbook. Combined uncertainty u_c = √(Σcᵢ²uᵢ²). Expanded uncertainty U = k × u_c (k=2 untuk ~95% confidence).",
+        "difficulty": 3,
+        "source": "ISO/IEC 17025, JCGM 100:2008 (GUM), Peraturan Kepala BMKG No. 2/2024",
+        "tags": ["uncertainty", "budget", "tipe-a", "tipe-b", "gum", "iso-17025", "kalibrasi"],
+        "flags": { "bookmarked": false, "needsReview": false, "disputed": false },
+        "metadata": { "createdAt": "2025-01-22T10:30:00Z", "updatedAt": "2025-01-22T10:30:00Z", "version": 1, "author": "import" },
+        "statistics": { "totalAttempts": 0, "correctAttempts": 0, "avgTimeMs": 0, "masteryLevel": 0 }
+      }
+    ],
+    "sessions": [],
+    "flashcards": [],
+    "settings": [],
+    "kisiKisi": []
+  }
+}
