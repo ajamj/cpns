@@ -16,6 +16,9 @@ vi.mock('../../src/db/schema', () => {
       async toArray(): Promise<Question[]> {
         return rows.map(q => structuredClone(q));
       },
+      async count(): Promise<number> {
+        return rows.length;
+      },
     };
   }
 
@@ -55,6 +58,12 @@ vi.mock('../../src/db/schema', () => {
         },
         anyOf(values: unknown[]) {
           return collection(Array.from(store.values()).filter(q => values.includes((q as unknown as Record<string, unknown>)[index])));
+        },
+        above(value: unknown) {
+          return collection(Array.from(store.values()).filter(q => {
+            const key = (q as unknown as Record<string, unknown>)[index];
+            return typeof key === 'string' && typeof value === 'string' && key > value;
+          }));
         },
       };
     },
@@ -240,5 +249,69 @@ describe('questionsRepo import/export', () => {
     expect(await questionsRepo.exportAll()).toHaveLength(62);
     expect(await questionsRepo.exportFiltered({})).toHaveLength(61);
     expect(await questionsRepo.exportFiltered({ topicCodes: ['UM-01'], textSearch: 'bulk question' })).toHaveLength(60);
+  });
+});
+
+describe('questionsRepo soft delete and trash (Task 7)', () => {
+  it('delete() marks deletedAt and hides the row from normal queries', async () => {
+    await seed([makeQuestion({ id: 'q-1' }), makeQuestion({ id: 'q-2' })]);
+    await questionsRepo.delete('q-1');
+
+    expect(store.get('q-1')?.deletedAt).toEqual(expect.any(String));
+    expect((await questionsRepo.getAll()).map(q => q.id)).toEqual(['q-2']);
+    expect((await questionsRepo.getAllWithDeleted())).toHaveLength(2);
+    expect((await questionsRepo.getTrash()).map(q => q.id)).toEqual(['q-1']);
+    expect(await questionsRepo.getTrashCount()).toBe(1);
+  });
+
+  it('delete(id, false) and purge() remove rows permanently', async () => {
+    await seed([makeQuestion({ id: 'q-1' }), makeQuestion({ id: 'q-2', deletedAt: '2024-01-02T00:00:00.000Z' })]);
+    await questionsRepo.delete('q-1', false);
+    expect(store.has('q-1')).toBe(false);
+
+    await questionsRepo.purge('q-2');
+    expect(store.has('q-2')).toBe(false);
+    expect(await questionsRepo.getTrashCount()).toBe(0);
+  });
+
+  it('restore() and bulkRestore() return trashed rows to the bank', async () => {
+    await seed([
+      makeQuestion({ id: 'q-1', deletedAt: '2024-01-01T00:00:00.000Z' }),
+      makeQuestion({ id: 'q-2', deletedAt: '2024-01-02T00:00:00.000Z' }),
+      makeQuestion({ id: 'q-3' }),
+    ]);
+
+    await questionsRepo.restore('q-1');
+    expect(store.get('q-1')?.deletedAt).toBeUndefined();
+    expect(store.get('q-1')?.metadata.version).toBe(2);
+
+    const count = await questionsRepo.bulkRestore(['q-2', 'q-3', 'q-2', 'missing']);
+    expect(count).toBe(1); // q-3 was never deleted; deduped/repeated q-2
+    expect((await questionsRepo.getAll()).map(q => q.id).sort()).toEqual(['q-1', 'q-2', 'q-3']);
+    expect(await questionsRepo.getTrashCount()).toBe(0);
+  });
+
+  it('bulkDelete(ids, false) permanently purges only the requested rows', async () => {
+    await seed([
+      makeQuestion({ id: 'q-1', deletedAt: '2024-01-01T00:00:00.000Z' }),
+      makeQuestion({ id: 'q-2', deletedAt: '2024-01-02T00:00:00.000Z' }),
+      makeQuestion({ id: 'q-3' }),
+    ]);
+    expect(await questionsRepo.bulkDelete(['q-1', 'q-2'], false)).toBe(2);
+    expect([...store.keys()].sort()).toEqual(['q-3']);
+  });
+
+  it('purgeOlderThan(30) only removes trashed rows past the retention window', async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    await seed([
+      makeQuestion({ id: 'old', deletedAt: new Date(now - 31 * day).toISOString() }),
+      makeQuestion({ id: 'fresh', deletedAt: new Date(now - 2 * day).toISOString() }),
+      makeQuestion({ id: 'active' }),
+    ]);
+
+    expect(await questionsRepo.purgeOlderThan(30)).toBe(1);
+    expect([...store.keys()].sort()).toEqual(['active', 'fresh']);
+    expect(await questionsRepo.getTrashCount()).toBe(1);
   });
 });

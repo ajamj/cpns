@@ -101,6 +101,23 @@ async function importSeedQuestionsIfEmpty(): Promise<void> {
   }
 }
 
+/**
+ * Trash retention: permanently remove soft-deleted questions older than 30
+ * days on every app load, before any view (including TrashView) reads them.
+ */
+async function purgeExpiredTrash(): Promise<void> {
+  try {
+    const { questionsRepo } = await import('@db/repositories/questions');
+    const purged = await questionsRepo.purgeOlderThan(30);
+    if (purged > 0) {
+      console.log(`Auto-purged ${purged} trashed questions older than 30 days`);
+      showToast(t('qb.autoPurgeDone', { count: purged }), 'info');
+    }
+  } catch (error) {
+    console.error('Failed to auto-purge trash:', error);
+  }
+}
+
 // Initialize app
 async function initApp(): Promise<void> {
   // Initialize locale
@@ -133,6 +150,9 @@ async function initApp(): Promise<void> {
   
   // Auto-import seed questions on first run
   await importSeedQuestionsIfEmpty();
+
+  // Enforce the 30-day trash retention window on every load.
+  await purgeExpiredTrash();
   
   // Initialize router
   initRouter();

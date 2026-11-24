@@ -21,6 +21,7 @@ import {
   type QuestionFormField,
 } from '../features/questions/question-form';
 import { navigate, t } from '../core/i18n';
+import { navigateToHash } from '../core/router';
 import { generateId, nowISO, downloadJSON } from '../core/utils';
 import { memoizeSelector, showProgressToast, showToast } from '../core/app-utils';
 import {
@@ -156,6 +157,7 @@ export class QuestionBankView {
   private element: HTMLElement | null = null;
   private questions: any[] = [];
   private filteredQuestions: any[] = [];
+  private trashCount = 0;
   private filter: QuestionFilter = {};
   private searchQuery = '';
   private fuse: Fuse<any> | null = null;
@@ -203,7 +205,12 @@ export class QuestionBankView {
   }
 
   async loadQuestions(): Promise<void> {
-    this.questions = await questionsRepo.getAll();
+    const [questions, trashCount] = await Promise.all([
+      questionsRepo.getAll(),
+      questionsRepo.getTrashCount(),
+    ]);
+    this.questions = questions;
+    this.trashCount = trashCount;
     // Underlying data changed: the memoized selector cache is no longer valid.
     selectFilteredQuestions.clear();
     // Build the searchable haystacks while the view is loading, so the first
@@ -672,8 +679,7 @@ export class QuestionBankView {
   }
 
   private getTrashCount(): number {
-    // This would need a separate call, simplified for now
-    return 0;
+    return this.trashCount;
   }
 
   private bindEvents(): void {
@@ -792,7 +798,7 @@ export class QuestionBankView {
     this.element.querySelector('#btnAddQuestion')?.addEventListener('click', () => this.editQuestion());
     this.element.querySelector('#btnImport')?.addEventListener('click', () => navigate('import'));
     this.element.querySelector('#btnExport')?.addEventListener('click', () => navigate('export'));
-    this.element.querySelector('#btnTrash')?.addEventListener('click', () => navigate('trash'));
+    this.element.querySelector('#btnTrash')?.addEventListener('click', () => navigateToHash('#/questions/trash'));
   }
 
   private setTopicCodes(codes: string[], checked: boolean): void {

@@ -225,15 +225,37 @@ export const questionsRepo = {
     );
   },
 
+  /** Count soft-deleted rows without materialising every question field. */
+  async getTrashCount(): Promise<number> {
+    return db.questions.where('deletedAt').above('').count();
+  },
+
   async restore(id: string): Promise<void> {
     const question = await db.questions.get(id);
-    if (question) {
+    if (question && isDeleted(question)) {
       delete question.deletedAt;
       question.metadata.updatedAt = new Date().toISOString();
       question.metadata.version++;
       await db.questions.put(question);
       emitQuestionUpdated(question);
     }
+  },
+
+  /** Restore many soft-deleted rows in one pass; returns the number restored. */
+  async bulkRestore(ids: string[]): Promise<number> {
+    let restored = 0;
+    const now = new Date().toISOString();
+    for (const id of [...new Set(ids)]) {
+      const question = await db.questions.get(id);
+      if (!question || !isDeleted(question)) continue;
+      delete question.deletedAt;
+      question.metadata.updatedAt = now;
+      question.metadata.version++;
+      await db.questions.put(question);
+      emitQuestionUpdated(question);
+      restored++;
+    }
+    return restored;
   },
 
   async purge(id: string): Promise<void> {

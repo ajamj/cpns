@@ -63,8 +63,14 @@ export function parseHash(hash: string = window.location.hash.slice(1)): Route {
   const [path = '', search] = hash.split('?');
   // Accept both `#/practice` (used by in-app links/manifest shortcuts) and
   // `#practice`; the leading slash must not be treated as an empty route key.
-  const routeKey = (path.replace(/^\/+/, '').split('/')[0] ?? '') as string;
-  const view = routeMap[routeKey] || 'dashboard';
+  const segments = path.replace(/^\/+/, '').split('/').filter(Boolean);
+  const routeKey = segments[0] ?? '';
+  // The trash view is reachable both as a top-level route (`#/trash`) and as a
+  // nested route under the question bank (`#/questions/trash`), matching the
+  // SKB prep UX where trash is a separate table view of the bank.
+  const isTrashSubroute =
+    (routeKey === 'questions' || routeKey === 'question-bank') && segments[1] === 'trash';
+  const view: ViewName = isTrashSubroute ? 'trash' : (routeMap[routeKey] || 'dashboard');
   
   const params: Record<string, string> = {};
   if (search) {
