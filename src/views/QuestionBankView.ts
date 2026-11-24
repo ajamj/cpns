@@ -1,6 +1,5 @@
 // Question Bank View
 import { questionsRepo } from '../db/repositories/questions';
-import { backupRepo } from '../db/repositories/backup';
 import {
   getAllTopicCodes,
   getSubdomainColor,
@@ -22,9 +21,14 @@ import {
   type QuestionFormField,
 } from '../features/questions/question-form';
 import { navigate, t } from '../core/i18n';
-import { eventBus } from '../core/events';
-import { generateId, nowISO, downloadJSON, parseCSV, toCSV } from '../core/utils';
-import { memoizeSelector, showToast } from '../core/app-utils';
+import { generateId, nowISO, downloadJSON } from '../core/utils';
+import { memoizeSelector, showProgressToast, showToast } from '../core/app-utils';
+import {
+  applyBulkUpdate,
+  questionsToCSV,
+  type BulkTagMode,
+  type BulkUpdate,
+} from '../features/questions/bulk-operations';
 import { closeModal, openModal } from '../core/modal';
 import type EasyMDE from 'easymde';
 import type {
@@ -155,8 +159,9 @@ export class QuestionBankView {
   private filter: QuestionFilter = {};
   private searchQuery = '';
   private fuse: Fuse<any> | null = null;
+  // Selection is keyed by ID, not by rendered row, so it survives virtualization.
   private selectedIds: Set<string> = new Set();
-  private selectAll = false;
+  private bulkOperationInProgress = false;
   private virtualizer: Virtualizer<HTMLElement, HTMLElement> | null = null;
   private virtualCleanup: (() => void) | null = null;
   private scrollElement: HTMLElement | null = null;
@@ -225,16 +230,64 @@ export class QuestionBankView {
     this.updateSelectionState();
   }
 
+  /** Selection is scoped to the current result set: stale IDs are pruned. */
   private updateSelectionState(): void {
     const visibleIds = new Set(this.filteredQuestions.map((q) => q.id));
-    if (this.selectAll) {
-      this.selectedIds = visibleIds;
-    } else {
-      // Drop selections no longer present in the filtered result.
-      for (const id of this.selectedIds) {
-        if (!visibleIds.has(id)) this.selectedIds.delete(id);
-      }
+    for (const id of this.selectedIds) {
+      if (!visibleIds.has(id)) this.selectedIds.delete(id);
     }
+  }
+
+  private get visibleSelectedCount(): number {
+    return this.filteredQuestions.reduce((count, q) => count + (this.selectedIds.has(q.id) ? 1 : 0), 0);
+  }
+
+  private get allVisibleSelected(): boolean {
+    return this.filteredQuestions.length > 0 && this.visibleSelectedCount === this.filteredQuestions.length;
+  }
+
+  private setAllVisibleSelected(checked: boolean): void {
+    for (const q of this.filteredQuestions) {
+      if (checked) this.selectedIds.add(q.id);
+      else this.selectedIds.delete(q.id);
+    }
+    this.syncSelectionUI();
+  }
+
+  /** Update the bulk bar and checkbox states without re-rendering the table. */
+  private syncSelectionUI(): void {
+    if (!this.element) return;
+    const main = this.element.querySelector<HTMLElement>('.question-bank-main');
+    if (!main) return;
+
+    const bar = main.querySelector<HTMLElement>('#bulkActionsBar');
+    if (this.selectedIds.size > 0) {
+      const markup = this.getBulkActionsHTML();
+      if (bar) bar.outerHTML = markup;
+      else main.insertAdjacentHTML('afterbegin', markup);
+    } else {
+      bar?.remove();
+    }
+
+    const allSelected = this.allVisibleSelected;
+    const someSelected = this.visibleSelectedCount > 0;
+    main.querySelectorAll<HTMLInputElement>('.select-all-checkbox').forEach(input => {
+      input.checked = allSelected;
+      input.indeterminate = someSelected && !allSelected;
+      input.disabled = this.bulkOperationInProgress;
+    });
+    this.tbody?.querySelectorAll<HTMLTableRowElement>('tr[data-id]').forEach(row => {
+      const selected = this.selectedIds.has(row.dataset.id ?? '');
+      row.classList.toggle('selected', selected);
+      const checkbox = row.querySelector<HTMLInputElement>('.row-checkbox');
+      if (checkbox) {
+        checkbox.checked = selected;
+        checkbox.disabled = this.bulkOperationInProgress;
+      }
+    });
+    main.querySelectorAll<HTMLButtonElement>('.bulk-action-button').forEach(button => {
+      button.disabled = this.bulkOperationInProgress;
+    });
   }
 
   render(): HTMLElement {
@@ -359,27 +412,7 @@ export class QuestionBankView {
 
       <div class="question-bank-main">
       <!-- Bulk Actions Bar -->
-      ${this.selectedIds.size > 0 ? `
-        <div class="card" style="margin-bottom:var(--space-4);background:var(--color-primary-light);border-color:var(--color-primary);">
-          <div class="card-content" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3);">
-            <div style="display:flex;align-items:center;gap:var(--space-3);">
-              <label class="form-check">
-                <input type="checkbox" class="form-check-input bulk-checkbox" id="selectAllFiltered" aria-label="${t('qb.selectAll')}" ${this.selectAll ? 'checked' : ''}>
-                <span class="form-check-label">${t('qb.selectAll')} (${this.filteredQuestions.length})</span>
-              </label>
-              <span style="color:var(--color-primary);font-weight:var(--font-medium);">${this.selectedIds.size} ${t('qb.selectedCount', { count: this.selectedIds.size })}</span>
-            </div>
-            <div style="display:flex;gap:var(--space-2);">
-              <button class="btn btn-primary btn-sm" id="btnBulkTag">${t('qb.tag')}</button>
-              <button class="btn btn-primary btn-sm" id="btnBulkFlag">${t('qb.flag')}</button>
-              <button class="btn btn-secondary btn-sm" id="btnBulkUnflag">${t('qb.unflag')}</button>
-              <button class="btn btn-secondary btn-sm" id="btnBulkReview">${t('qb.moveToTrash')}</button>
-              <button class="btn btn-danger btn-sm" id="btnBulkDelete">${t('common.delete')}</button>
-              <button class="btn btn-ghost btn-sm" id="btnClearSelection">${t('qb.deselectAll')}</button>
-            </div>
-          </div>
-        </div>
-      ` : ''}
+      ${this.getBulkActionsHTML()}
 
       <!-- Question Table (virtualized: only visible rows are in the DOM) -->
       <div class="card">
@@ -388,7 +421,7 @@ export class QuestionBankView {
             <thead>
               <tr>
                 <th style="width:40px;">
-                  <input type="checkbox" class="form-check-input bulk-checkbox" id="selectAllHeader" aria-label="${t('qb.selectAll')}" ${this.selectAll ? 'checked' : ''}>
+                  <input type="checkbox" class="form-check-input bulk-checkbox select-all-checkbox" id="selectAllHeader" aria-label="${t('qb.selectAll')}">
                 </th>
                 <th>${t('qb.topic')}</th>
                 <th>${t('qb.stem')}</th>
@@ -407,6 +440,36 @@ export class QuestionBankView {
       </div>
       </div>
     </div>
+    `;
+  }
+
+  /** Bulk action bar; rendered only while at least one question is selected. */
+  private getBulkActionsHTML(): string {
+    if (this.selectedIds.size === 0) return '';
+    const allSelected = this.allVisibleSelected;
+    const count = this.selectedIds.size;
+    return `
+      <div class="card bulk-actions-bar" id="bulkActionsBar" style="margin-bottom:var(--space-4);background:var(--color-primary-light);border-color:var(--color-primary);">
+        <div class="card-content" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3);">
+          <div style="display:flex;align-items:center;gap:var(--space-3);">
+            <label class="form-check">
+              <input type="checkbox" class="form-check-input bulk-checkbox select-all-checkbox" aria-label="${t('qb.selectAll')}" ${allSelected ? 'checked' : ''} ${this.bulkOperationInProgress ? 'disabled' : ''}>
+              <span class="form-check-label">${t('qb.selectAll')} (${this.filteredQuestions.length})</span>
+            </label>
+            <span style="color:var(--color-primary);font-weight:var(--font-medium);">${t('qb.selectedCount', { count })}</span>
+          </div>
+          <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm bulk-action-button" id="btnBulkTag" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.tag')}</button>
+            <button type="button" class="btn btn-primary btn-sm bulk-action-button" id="btnBulkRetag" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.bulkRetag')}</button>
+            <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkExport" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.bulkExport')}</button>
+            <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkFlag" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.flag')}</button>
+            <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkUnflag" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.unflag')}</button>
+            <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkReview" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.bulkNeedsReview')}</button>
+            <button type="button" class="btn btn-danger btn-sm bulk-action-button" id="btnBulkDelete" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('common.delete')}</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnClearSelection" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.deselectAll')}</button>
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -492,7 +555,7 @@ export class QuestionBankView {
     const mastery = stats.masteryLevel ?? 0;
     return `
       <tr data-id="${escapeHTML(q.id)}" style="height:${ROW_HEIGHT}px;" ${this.selectedIds.has(q.id) ? 'class="selected"' : ''}>
-        <td><input type="checkbox" class="form-check-input row-checkbox bulk-checkbox" aria-label="Pilih soal ${escapeHTML(q.topicCode)}" value="${escapeHTML(q.id)}" ${this.selectedIds.has(q.id) ? 'checked' : ''}></td>
+        <td><input type="checkbox" class="form-check-input row-checkbox bulk-checkbox" id="row-check-${escapeHTML(q.id)}" aria-label="${t('qb.selectAll')}: ${escapeHTML(q.topicCode)}" value="${escapeHTML(q.id)}" ${this.selectedIds.has(q.id) ? 'checked' : ''} ${this.bulkOperationInProgress ? 'disabled' : ''}></td>
         <td>
           <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(q.topicCode)};">${escapeHTML(q.topicCode)}</span>
         </td>
@@ -547,11 +610,12 @@ export class QuestionBankView {
     // Delegated listeners stay valid when rows are replaced as the user scrolls.
     tbody.addEventListener('change', (event) => {
       const target = event.target as HTMLInputElement;
-      if (!target.matches('.row-checkbox')) return;
+      if (!target.matches('.row-checkbox') || this.bulkOperationInProgress) return;
       if (target.checked) this.selectedIds.add(target.value);
       else this.selectedIds.delete(target.value);
-      this.selectAll = this.selectedIds.size === this.filteredQuestions.length;
-      this.refreshView();
+      // Rows stay mounted: only the bulk bar and checkbox states change. This
+      // keeps selection stable across virtualized windows and scroll position.
+      this.syncSelectionUI();
     });
     tbody.addEventListener('click', (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
@@ -688,38 +752,41 @@ export class QuestionBankView {
     });
 
     this.syncTopicTreeIndeterminate();
+    this.syncSelectionUI();
 
-    // Selection
-    this.element.querySelector('#selectAllHeader')?.addEventListener('change', (e) => {
-      const target = e.target as HTMLInputElement;
-      this.selectAll = target.checked;
-      this.updateSelectionState();
-      this.refreshView();
-    });
-
-    this.element.querySelector('#selectAllFiltered')?.addEventListener('change', (e) => {
-      const target = e.target as HTMLInputElement;
-      this.selectAll = target.checked;
-      this.updateSelectionState();
-      this.refreshView();
-    });
+    // Bulk bar is inserted/removed dynamically, so its events are delegated on
+    // the stable view root. Bind once: bindEvents() runs after every re-render.
+    if (!this.element.dataset.bulkBound) {
+      this.element.dataset.bulkBound = 'true';
+      this.element.addEventListener('change', (event) => {
+        const target = event.target as HTMLInputElement;
+        if (target.matches('.select-all-checkbox') && !this.bulkOperationInProgress) {
+          this.setAllVisibleSelected(target.checked);
+        }
+      });
+      this.element.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+          '.bulk-action-button, #btnClearSelection'
+        );
+        if (!button || !this.element?.contains(button) || this.bulkOperationInProgress) return;
+        switch (button.id) {
+          case 'btnBulkTag': void this.bulkTag(); break;
+          case 'btnBulkRetag': void this.bulkRetag(); break;
+          case 'btnBulkExport': void this.bulkExport(); break;
+          case 'btnBulkFlag': void this.bulkFlag(); break;
+          case 'btnBulkUnflag': void this.bulkUnflag(); break;
+          case 'btnBulkReview': void this.bulkReview(); break;
+          case 'btnBulkDelete': void this.bulkDelete(); break;
+          case 'btnClearSelection':
+            this.selectedIds.clear();
+            this.syncSelectionUI();
+            break;
+        }
+      });
+    }
 
     // Row checkbox/action listeners are delegated on the stable tbody in
     // mountQuestionList(), because rows are replaced as the user scrolls.
-
-    // Clear selection
-    this.element.querySelector('#btnClearSelection')?.addEventListener('click', () => {
-      this.selectedIds.clear();
-      this.selectAll = false;
-      this.refreshView();
-    });
-
-    // Bulk actions
-    this.element.querySelector('#btnBulkTag')?.addEventListener('click', () => this.bulkTag());
-    this.element.querySelector('#btnBulkFlag')?.addEventListener('click', () => this.bulkFlag());
-    this.element.querySelector('#btnBulkUnflag')?.addEventListener('click', () => this.bulkUnflag());
-    this.element.querySelector('#btnBulkReview')?.addEventListener('click', () => this.bulkReview());
-    this.element.querySelector('#btnBulkDelete')?.addEventListener('click', () => this.bulkDelete());
 
     // Header actions
     this.element.querySelector('#btnAddQuestion')?.addEventListener('click', () => this.editQuestion());
@@ -1232,7 +1299,6 @@ export class QuestionBankView {
     try {
       await questionsRepo.delete(id);
       this.selectedIds.delete(id);
-      this.selectAll = false;
       showToast(t('qb.movedToTrash'), 'success');
       await this.reloadAfterMutation();
     } catch (error) {
@@ -1240,56 +1306,296 @@ export class QuestionBankView {
     }
   }
 
-  private bulkTag(): void {
-    // TODO: Implement bulk tag modal
-    alert('Bulk tag - TODO');
+  // ---------------------------------------------------------------------------
+  // Bulk operations (Task 5)
+  // ---------------------------------------------------------------------------
+
+  private requireSelection(): string[] {
+    const ids = [...this.selectedIds];
+    if (ids.length === 0) showToast(t('qb.bulkNothingSelected'), 'warning');
+    return ids;
+  }
+
+  private setBulkBusy(busy: boolean): void {
+    this.bulkOperationInProgress = busy;
+    this.syncSelectionUI();
+  }
+
+  /** Let the browser paint the progress bar between chunks of work. */
+  private yieldToUI(): Promise<void> {
+    return new Promise(resolve => {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+      else setTimeout(resolve, 0);
+    });
+  }
+
+  private progressLabel(done: number, total: number): string {
+    return t('qb.bulkApplying', { done, total });
+  }
+
+  /** Apply a tag/flag patch to every selected question with live progress. */
+  private async applyBulkUpdateToSelection(update: BulkUpdate): Promise<void> {
+    const ids = this.requireSelection();
+    if (ids.length === 0) return;
+    this.setBulkBusy(true);
+    const progress = showProgressToast(this.progressLabel(0, ids.length), ids.length);
+    let processed = 0;
+    let succeeded = 0;
+    let failed = 0;
+
+    try {
+      for (const id of ids) {
+        try {
+          const question = await questionsRepo.getById(id);
+          if (question && !question.deletedAt) {
+            await questionsRepo.put(applyBulkUpdate(question, update));
+            succeeded++;
+          } else {
+            failed++;
+          }
+        } catch {
+          failed++;
+        }
+        processed++;
+        progress.update(processed, ids.length, this.progressLabel(processed, ids.length));
+        if (processed % 20 === 0) await this.yieldToUI();
+      }
+
+      if (failed === 0) {
+        progress.finish(t('qb.bulkCompleted', { count: succeeded }), 'success');
+      } else if (succeeded > 0) {
+        progress.finish(t('qb.bulkPartial', { done: succeeded, failed }), 'warning');
+      } else {
+        progress.finish(t('qb.bulkFailed', { failed }), 'error');
+      }
+    } finally {
+      try {
+        await this.reloadAfterMutation();
+      } finally {
+        this.setBulkBusy(false);
+      }
+    }
+  }
+
+  private async bulkTag(): Promise<void> {
+    await this.promptBulkTags('add');
+  }
+
+  private async bulkRetag(): Promise<void> {
+    await this.promptBulkTags('replace');
+  }
+
+  private async promptBulkTags(mode: BulkTagMode): Promise<void> {
+    const ids = this.requireSelection();
+    if (ids.length === 0) return;
+    const selected = await questionsRepo.getByIds(ids);
+    // Retag starts from the union of current tags so users can prune them;
+    // plain tag starts empty so it reads as an additive operation.
+    const existing = mode === 'replace'
+      ? [...new Set(selected.flatMap(q => q.tags ?? []))]
+      : [];
+    const raw = await this.openBulkTagModal(mode, ids.length, existing.join(', '));
+    if (raw === null) return;
+    const tags = parseTags(raw);
+    if (tags.length === 0) {
+      showToast(t('qb.bulkTagsRequired'), 'warning');
+      return;
+    }
+    await this.applyBulkUpdateToSelection({ kind: 'tags', mode, tags });
+  }
+
+  private openBulkTagModal(mode: BulkTagMode, count: number, initial: string): Promise<string | null> {
+    return new Promise(resolve => {
+      const isReplace = mode === 'replace';
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:480px;">
+          <div class="modal-header">
+            <h2 class="modal-title">${escapeHTML(t(isReplace ? 'qb.bulkRetag' : 'qb.tag'))}</h2>
+            <button type="button" class="modal-close" id="bulkTagClose" aria-label="${escapeHTML(t('common.close'))}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p style="margin-top:0;">${escapeHTML(t(isReplace ? 'qb.bulkRetagPrompt' : 'qb.bulkTagPrompt', { count }))}</p>
+            <label class="form-label" for="bulkTagsInput">${escapeHTML(t('qb.tags'))}</label>
+            <textarea id="bulkTagsInput" class="form-textarea" rows="3" placeholder="${escapeHTML(t('qb.tagsHelp'))}">${escapeHTML(initial)}</textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="bulkTagCancel">${escapeHTML(t('common.cancel'))}</button>
+            <button type="button" class="btn btn-primary" id="bulkTagApply">${escapeHTML(t('common.save'))}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      openModal(overlay);
+      let settled = false;
+      const finish = (value: string | null): void => {
+        if (settled) return;
+        settled = true;
+        closeModal(overlay);
+        resolve(value);
+      };
+      overlay.querySelector('#bulkTagApply')?.addEventListener('click', () => {
+        finish(overlay.querySelector<HTMLTextAreaElement>('#bulkTagsInput')?.value ?? '');
+      });
+      overlay.querySelector('#bulkTagCancel')?.addEventListener('click', () => finish(null));
+      overlay.querySelector('#bulkTagClose')?.addEventListener('click', () => finish(null));
+      overlay.addEventListener('click', event => {
+        if (event.target === overlay) finish(null);
+      });
+      overlay.addEventListener('keydown', event => {
+        if ((event as KeyboardEvent).key === 'Escape') finish(null);
+      });
+    });
   }
 
   private async bulkFlag(): Promise<void> {
-    const { questionsRepo } = await import('../db/repositories/questions');
-    await Promise.all(Array.from(this.selectedIds, async (id) => {
-      const q = await questionsRepo.getById(id);
-      if (q) {
-        q.flags.bookmarked = true;
-        await questionsRepo.put(q);
-      }
-    }));
-    await this.reloadAfterMutation();
+    await this.applyBulkUpdateToSelection({
+      kind: 'flags',
+      patch: { bookmarked: true },
+    });
   }
 
   private async bulkUnflag(): Promise<void> {
-    const { questionsRepo } = await import('../db/repositories/questions');
-    await Promise.all(Array.from(this.selectedIds, async (id) => {
-      const q = await questionsRepo.getById(id);
-      if (q) {
-        q.flags.bookmarked = false;
-        q.flags.needsReview = false;
-        q.flags.disputed = false;
-        await questionsRepo.put(q);
-      }
-    }));
-    await this.reloadAfterMutation();
+    // Only the bookmark flag is cleared; needsReview/disputed are separate
+    // dimensions with their own bulk actions and must not be wiped here.
+    await this.applyBulkUpdateToSelection({
+      kind: 'flags',
+      patch: { bookmarked: false },
+    });
   }
 
   private async bulkReview(): Promise<void> {
-    const { questionsRepo } = await import('../db/repositories/questions');
-    await Promise.all(Array.from(this.selectedIds, async (id) => {
-      const q = await questionsRepo.getById(id);
-      if (q) {
-        q.flags.needsReview = true;
-        await questionsRepo.put(q);
+    await this.applyBulkUpdateToSelection({
+      kind: 'flags',
+      patch: { needsReview: true },
+    });
+  }
+
+  private async bulkExport(): Promise<void> {
+    const ids = this.requireSelection();
+    if (ids.length === 0) return;
+    const format = await this.openBulkExportModal(ids.length);
+    if (!format) return;
+
+    this.setBulkBusy(true);
+    const progress = showProgressToast(this.progressLabel(0, ids.length), ids.length);
+    const questions: Question[] = [];
+    const BATCH_SIZE = 100;
+    try {
+      for (let offset = 0; offset < ids.length; offset += BATCH_SIZE) {
+        const batch = await questionsRepo.getByIds(ids.slice(offset, offset + BATCH_SIZE));
+        questions.push(...batch);
+        const done = Math.min(offset + BATCH_SIZE, ids.length);
+        progress.update(done, ids.length, this.progressLabel(done, ids.length));
+        await this.yieldToUI();
       }
-    }));
-    await this.reloadAfterMutation();
+      const date = new Date().toISOString().split('T')[0];
+      if (format === 'json') {
+        downloadJSON(questions, `cpns-selected-questions-${date}.json`);
+      } else {
+        this.downloadText(
+          questionsToCSV(questions),
+          'text/csv;charset=utf-8',
+          `cpns-selected-questions-${date}.csv`
+        );
+      }
+      progress.finish(t('qb.bulkExported', { count: questions.length }), 'success');
+    } catch (error) {
+      progress.finish(t('error.exportFailed', { error: String(error) }), 'error');
+    } finally {
+      this.setBulkBusy(false);
+    }
+  }
+
+  private openBulkExportModal(count: number): Promise<'json' | 'csv' | null> {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:440px;">
+          <div class="modal-header">
+            <h2 class="modal-title">${escapeHTML(t('qb.bulkExport'))}</h2>
+            <button type="button" class="modal-close" id="bulkExportClose" aria-label="${escapeHTML(t('common.close'))}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p style="margin-top:0;">${escapeHTML(t('qb.bulkExportPrompt', { count }))}</p>
+            <label class="form-check">
+              <input type="radio" class="form-check-input" name="bulkExportFormat" value="json" checked>
+              <span class="form-check-label">${escapeHTML(t('export.json'))}</span>
+            </label>
+            <label class="form-check">
+              <input type="radio" class="form-check-input" name="bulkExportFormat" value="csv">
+              <span class="form-check-label">${escapeHTML(t('export.csv'))}</span>
+            </label>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="bulkExportCancel">${escapeHTML(t('common.cancel'))}</button>
+            <button type="button" class="btn btn-primary" id="bulkExportApply">${escapeHTML(t('common.export'))}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      openModal(overlay);
+      let settled = false;
+      const finish = (value: 'json' | 'csv' | null): void => {
+        if (settled) return;
+        settled = true;
+        closeModal(overlay);
+        resolve(value);
+      };
+      overlay.querySelector('#bulkExportApply')?.addEventListener('click', () => {
+        const selected = overlay.querySelector<HTMLInputElement>('input[name="bulkExportFormat"]:checked');
+        finish(selected?.value === 'csv' ? 'csv' : 'json');
+      });
+      overlay.querySelector('#bulkExportCancel')?.addEventListener('click', () => finish(null));
+      overlay.querySelector('#bulkExportClose')?.addEventListener('click', () => finish(null));
+      overlay.addEventListener('click', event => {
+        if (event.target === overlay) finish(null);
+      });
+      overlay.addEventListener('keydown', event => {
+        if ((event as KeyboardEvent).key === 'Escape') finish(null);
+      });
+    });
+  }
+
+  private downloadText(content: string, mimeType: string, filename: string): void {
+    const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   private async bulkDelete(): Promise<void> {
-    if (confirm(`Hapus ${this.selectedIds.size} soal?`)) {
-      const { questionsRepo } = await import('../db/repositories/questions');
-      await questionsRepo.bulkDelete(Array.from(this.selectedIds));
+    const ids = this.requireSelection();
+    if (ids.length === 0) return;
+    if (!(await this.confirmAction(t('qb.bulkDeleteConfirm', { count: ids.length })))) return;
+
+    this.setBulkBusy(true);
+    const progress = showProgressToast(this.progressLabel(0, ids.length), ids.length);
+    let deleted = 0;
+    try {
+      for (let offset = 0; offset < ids.length; offset += 50) {
+        const batch = ids.slice(offset, offset + 50);
+        deleted += await questionsRepo.bulkDelete(batch, true);
+        const done = Math.min(offset + 50, ids.length);
+        progress.update(done, ids.length, this.progressLabel(done, ids.length));
+        await this.yieldToUI();
+      }
+      progress.finish(t('qb.bulkCompleted', { count: deleted }), 'success');
+    } catch (error) {
+      progress.finish(t('error.deleteFailed', { error: String(error) }), 'error');
+    } finally {
       this.selectedIds.clear();
-      this.selectAll = false;
-      await this.reloadAfterMutation();
+      try {
+        await this.reloadAfterMutation();
+      } finally {
+        this.setBulkBusy(false);
+      }
     }
   }
 

@@ -21,6 +21,20 @@ export function setShowToast(fn: ToastFunction): void {
   _showToast = fn;
 }
 
+function getToastContainer(): HTMLElement {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'toast-container';
+    container.setAttribute('role', 'status');
+    container.setAttribute('aria-live', 'polite');
+    container.setAttribute('aria-atomic', 'false');
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
 /**
  * Show a toast through the shared toast container. When no implementation has
  * been registered yet (early startup, isolated unit test) a minimal DOM-only
@@ -37,17 +51,7 @@ export function showToast(
     return;
   }
 
-  let container = document.getElementById('toast-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'toast-container';
-    container.className = 'toast-container';
-    container.setAttribute('role', 'status');
-    container.setAttribute('aria-live', 'polite');
-    container.setAttribute('aria-atomic', 'false');
-    document.body.appendChild(container);
-  }
-
+  const container = getToastContainer();
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
 
@@ -69,6 +73,68 @@ export function showToast(
 
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 5000);
+}
+
+export interface ProgressToastHandle {
+  /** Update the completed-item count and (optionally) the status label. */
+  update(done: number, total: number, label?: string): void;
+  /** Replace the bar with a final status message that auto-dismisses. */
+  finish(message: string, type?: ToastType): void;
+}
+
+/**
+ * Persistent toast with an accessible progress bar, used by long bulk actions.
+ * Unlike showToast(), it never auto-dismisses until finish() is called.
+ */
+export function showProgressToast(label: string, total: number): ProgressToastHandle {
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-info bulk-progress-toast';
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
+
+  const message = document.createElement('span');
+  message.className = 'toast-message';
+  message.textContent = label;
+
+  const track = document.createElement('div');
+  track.className = 'bulk-progress-track';
+  track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', String(total));
+  track.setAttribute('aria-valuenow', '0');
+
+  const fill = document.createElement('div');
+  fill.className = 'bulk-progress-fill';
+  fill.style.width = '0%';
+  track.appendChild(fill);
+
+  const count = document.createElement('span');
+  count.className = 'bulk-progress-count';
+  count.textContent = `0 / ${total}`;
+
+  toast.append(message, track, count);
+  getToastContainer().appendChild(toast);
+
+  return {
+    update(done, currentTotal, nextLabel) {
+      const safeTotal = Math.max(0, currentTotal);
+      const safeDone = Math.max(0, Math.min(done, safeTotal));
+      const percentComplete = safeTotal === 0 ? 100 : Math.round((safeDone / safeTotal) * 100);
+      fill.style.width = `${percentComplete}%`;
+      track.setAttribute('aria-valuenow', String(safeDone));
+      track.setAttribute('aria-valuemax', String(safeTotal));
+      count.textContent = `${safeDone} / ${safeTotal}`;
+      if (nextLabel) message.textContent = nextLabel;
+    },
+    finish(finalMessage, type = 'success') {
+      message.textContent = finalMessage;
+      track.remove();
+      count.remove();
+      toast.classList.remove('toast-info');
+      toast.classList.add(`toast-${type}`);
+      setTimeout(() => toast.remove(), 4000);
+    },
+  };
 }
 
 // Global event handlers

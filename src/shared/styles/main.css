@@ -1325,6 +1325,35 @@ img {
   color: var(--color-text);
 }
 
+/* Bulk-operation progress toast */
+.bulk-progress-toast {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  min-width: 320px;
+}
+.bulk-progress-toast .toast-message {
+  grid-column: 1 / -1;
+}
+.bulk-progress-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+}
+.bulk-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--color-primary);
+  transition: width var(--transition-fast);
+}
+.bulk-progress-count {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Loading Spinner */
 .spinner {
   display: inline-block;
