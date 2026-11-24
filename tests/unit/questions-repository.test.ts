@@ -182,6 +182,53 @@ describe('questionsRepo version history', () => {
     await questionsRepo.add(makeQuestion({ id: 'q-new' }));
     expect((await questionsRepo.getById('q-new'))?.versions).toBeUndefined();
   });
+
+  it('put increments the version even when the caller does not', async () => {
+    await questionsRepo.put(makeQuestion({ stem: 'Direct edit' }));
+    const saved = await questionsRepo.getById('q-1');
+    expect(saved?.metadata.version).toBe(2);
+    expect(saved?.versions?.[0]?.stem).toBe('Apa ibukota Indonesia?');
+  });
+
+  it('getVersions returns newest-first clones capped at five', async () => {
+    for (let version = 2; version <= 8; version++) {
+      await questionsRepo.put(makeQuestion({
+        stem: `Revision ${version}`,
+        metadata: { ...makeQuestion().metadata, version },
+      }));
+    }
+    const versions = await questionsRepo.getVersions('q-1');
+    expect(versions.map(v => v.stem)).toEqual([
+      'Revision 7', 'Revision 6', 'Revision 5', 'Revision 4', 'Revision 3',
+    ]);
+    versions[0]!.stem = 'tampered';
+    expect((await questionsRepo.getVersions('q-1'))[0]?.stem).toBe('Revision 7');
+    expect(await questionsRepo.getVersions('missing')).toEqual([]);
+  });
+
+  it('restoreVersion applies an old snapshot and records the reversal', async () => {
+    await questionsRepo.put(makeQuestion({ stem: 'Revision 2', metadata: { ...makeQuestion().metadata, version: 2 } }));
+    await questionsRepo.put(makeQuestion({ stem: 'Revision 3', metadata: { ...makeQuestion().metadata, version: 3 } }));
+
+    const restored = await questionsRepo.restoreVersion('q-1', 1);
+    expect(restored?.stem).toBe('Apa ibukota Indonesia?');
+    expect(restored?.metadata.version).toBe(4);
+
+    const saved = await questionsRepo.getById('q-1');
+    expect(saved?.stem).toBe('Apa ibukota Indonesia?');
+    expect(saved?.metadata.version).toBe(4);
+    expect(saved?.versions?.map(v => v.stem)).toEqual([
+      'Revision 3', 'Revision 2', 'Apa ibukota Indonesia?',
+    ]);
+    for (const snapshot of saved?.versions ?? []) expect(snapshot.versions).toBeUndefined();
+  });
+
+  it('restoreVersion ignores unknown versions without changing the question', async () => {
+    await questionsRepo.put(makeQuestion({ stem: 'Revision 2', metadata: { ...makeQuestion().metadata, version: 2 } }));
+    expect(await questionsRepo.restoreVersion('q-1', 99)).toBeUndefined();
+    expect((await questionsRepo.getById('q-1'))?.stem).toBe('Revision 2');
+    expect(await questionsRepo.restoreVersion('missing', 1)).toBeUndefined();
+  });
 });
 
 describe('questionsRepo import/export', () => {

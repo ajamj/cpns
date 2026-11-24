@@ -72,6 +72,32 @@ function appendVersionSnapshot(next: Question, previous?: Question): void {
   next.versions = versions.slice(0, MAX_VERSION_SNAPSHOTS);
 }
 
+/**
+ * Every persisted edit follows one rule: version = previous version + 1, and
+ * the pre-edit row becomes the newest snapshot (capped at 5). Callers may send
+ * an already-incremented version (the form does); we accept it only when it is
+ * exactly the expected value so bulk/import paths cannot skip or duplicate it.
+ */
+function prepareVersionedUpdate(next: Question, previous?: Question): void {
+  if (!previous) return;
+  // Callers may build a patch without re-sending `versions`; never drop history.
+  if (!Array.isArray(next.versions) && Array.isArray(previous.versions)) {
+    next.versions = previous.versions.map(cloneQuestion);
+  }
+  const previousVersion = previous.metadata?.version ?? 0;
+  const incomingVersion = next.metadata?.version ?? 0;
+  if (incomingVersion !== previousVersion + 1) {
+    next.metadata = {
+      ...next.metadata,
+      createdAt: next.metadata?.createdAt ?? previous.metadata?.createdAt ?? nowISO(),
+      updatedAt: nowISO(),
+      author: next.metadata?.author ?? previous.metadata?.author ?? 'user',
+      version: previousVersion + 1,
+    };
+  }
+  appendVersionSnapshot(next, previous);
+}
+
 function cloneQuestion(q: Question): Question {
   return structuredClone(q);
 }
@@ -113,6 +139,32 @@ export const questionsRepo = {
     return db.questions.get(id);
   },
 
+  /** Newest-first pre-edit snapshots (max 5), safe to render/export. */
+  async getVersions(id: string): Promise<Question[]> {
+    const question = await db.questions.get(id);
+    if (!question || !Array.isArray(question.versions)) return [];
+    return question.versions.map(cloneQuestion);
+  },
+
+  /**
+   * Replace a question with a stored snapshot. The current state is snapshotted
+   * first, so a restore is itself reversible and visible in the history.
+   */
+  async restoreVersion(id: string, version: number): Promise<Question | undefined> {
+    const current = await db.questions.get(id);
+    const snapshot = current?.versions?.find(v => Number(v.metadata?.version) === version);
+    if (!current || !snapshot) return undefined;
+
+    const restored = cloneQuestion(snapshot);
+    restored.id = current.id;
+    delete restored.deletedAt;
+    delete restored.versions;
+    prepareVersionedUpdate(restored, current);
+    await db.questions.put(restored);
+    emitQuestionUpdated(restored);
+    return restored;
+  },
+
   async add(question: Question): Promise<string> {
     await db.questions.add(question);
     emitQuestionCreated(question);
@@ -120,9 +172,9 @@ export const questionsRepo = {
   },
 
   async put(question: Question): Promise<string> {
-    // Keep version history (last 5), newest first, without nesting versions.
+    // Every edit bumps the version and stores the pre-edit snapshot.
     const existing = await db.questions.get(question.id);
-    appendVersionSnapshot(question, existing);
+    prepareVersionedUpdate(question, existing);
     await db.questions.put(question);
     emitQuestionUpdated(question);
     return question.id;
@@ -462,7 +514,7 @@ export const questionsRepo = {
           version: (existing.metadata?.version ?? 0) + 1,
           updatedAt: nowISO(),
         };
-        appendVersionSnapshot(merged, existing);
+        prepareVersionedUpdate(merged, existing);
         toPut.push(merged);
         const index = existingAll.indexOf(existing);
         if (index >= 0) existingAll[index] = merged;

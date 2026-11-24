@@ -175,6 +175,7 @@ export class QuestionBankView {
   private formOverlay: HTMLElement | null = null;
   private formDraft: QuestionFormDraft | null = null;
   private formQuestion: Question | undefined;
+  private formVersions: Question[] = [];
   private formValidCodes: ReadonlySet<string> = new Set();
   private editors: { stem: MarkdownEditor | null; explanation: MarkdownEditor | null } = {
     stem: null,
@@ -876,6 +877,7 @@ export class QuestionBankView {
     }
 
     this.formQuestion = existing;
+    this.formVersions = id ? await questionsRepo.getVersions(id) : [];
     this.formDraft = existing ? draftFromQuestion(existing) : createEmptyDraft();
     // Imported banks may use legacy codes (e.g. TK-01). They remain valid when
     // editing those rows; new questions must use a registered kisi-kisi code.
@@ -920,6 +922,7 @@ export class QuestionBankView {
       <div class="modal question-form-modal" style="max-width:860px;">
         <div class="modal-header">
           <h2 class="modal-title" id="questionFormTitle">${isEdit ? escapeHTML(t('qb.editQuestion')) : escapeHTML(t('qb.addQuestion'))}</h2>
+          ${isEdit ? `<span class="badge badge-info" id="qfVersionBadge">${escapeHTML(t('qb.versionCurrent', { version: this.formQuestion?.metadata?.version ?? 1 }))}</span>` : ''}
           <button type="button" class="modal-close" id="btnCloseQuestionForm" aria-label="${escapeHTML(t('common.close'))}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
@@ -931,6 +934,7 @@ export class QuestionBankView {
             <button type="button" class="tab" role="tab" id="qfTabOptions" data-form-tab="options" aria-controls="qfPanelOptions" aria-selected="false" tabindex="-1">${escapeHTML(t('qb.tabs.options'))}</button>
             <button type="button" class="tab" role="tab" id="qfTabExplanation" data-form-tab="explanation" aria-controls="qfPanelExplanation" aria-selected="false" tabindex="-1">${escapeHTML(t('qb.tabs.explanation'))}</button>
             <button type="button" class="tab" role="tab" id="qfTabMetadata" data-form-tab="metadata" aria-controls="qfPanelMetadata" aria-selected="false" tabindex="-1">${escapeHTML(t('qb.tabs.metadata'))}</button>
+            ${isEdit ? `<button type="button" class="tab" role="tab" id="qfTabHistory" data-form-tab="history" aria-controls="qfPanelHistory" aria-selected="false" tabindex="-1">${escapeHTML(t('qb.tabs.history'))}</button>` : ''}
           </div>
 
           <section class="tab-panel" id="qfPanelStem" role="tabpanel" aria-labelledby="qfTabStem" data-form-panel="stem">
@@ -995,6 +999,12 @@ export class QuestionBankView {
               </fieldset>
             </div>
           </section>
+          ${isEdit ? `
+          <section class="tab-panel" id="qfPanelHistory" role="tabpanel" aria-labelledby="qfTabHistory" data-form-panel="history" style="display:none;">
+            <div id="qfVersionList" class="question-version-list">
+              ${this.getVersionHistoryHTML()}
+            </div>
+          </section>` : ''}
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="qfCancel">${escapeHTML(t('common.cancel'))}</button>
@@ -1004,6 +1014,30 @@ export class QuestionBankView {
     `;
   }
 
+  /** Newest-first snapshot list rendered inside the form's history tab. */
+  private getVersionHistoryHTML(): string {
+    if (this.formVersions.length === 0) {
+      return `<p class="form-help" id="qfVersionEmpty">${escapeHTML(t('qb.versionEmpty'))}</p>`;
+    }
+    return this.formVersions.map((snapshot, index) => {
+      const rawVersion = Number(snapshot.metadata?.version ?? this.formVersions.length - index);
+      const version = Number.isFinite(rawVersion) ? rawVersion : this.formVersions.length - index;
+      const updatedAt = snapshot.metadata?.updatedAt ?? snapshot.metadata?.createdAt ?? '';
+      const timestamp = new Date(updatedAt);
+      const label = Number.isFinite(timestamp.getTime()) ? timestamp.toLocaleString() : updatedAt;
+      const stem = String(snapshot.stem ?? '');
+      return `
+        <article class="question-version-item" data-version="${version}">
+          <div class="question-version-meta">
+            <span class="badge badge-info">${escapeHTML(t('qb.version', { version }))}</span>
+            <time datetime="${escapeHTML(updatedAt)}">${escapeHTML(label)}</time>
+          </div>
+          <p class="question-version-stem">${escapeHTML(stem.length > 140 ? stem.substring(0, 140) + '…' : stem)}</p>
+          <button type="button" class="btn btn-secondary btn-sm" data-restore-version="${version}" aria-label="${escapeHTML(t('qb.versionRestore'))}: ${escapeHTML(t('qb.version', { version }))}">${escapeHTML(t('qb.versionRestore'))}</button>
+        </article>`;
+    }).join('');
+  }
+
   private bindFormEvents(overlay: HTMLElement): void {
     overlay.querySelectorAll<HTMLElement>('[data-form-tab]').forEach(button => {
       button.addEventListener('click', () => this.switchFormTab(overlay, button.dataset.formTab ?? 'stem'));
@@ -1011,6 +1045,11 @@ export class QuestionBankView {
     overlay.querySelector('#btnCloseQuestionForm')?.addEventListener('click', () => this.closeQuestionForm());
     overlay.querySelector('#qfCancel')?.addEventListener('click', () => this.closeQuestionForm());
     overlay.querySelector('#qfSave')?.addEventListener('click', () => void this.saveQuestionForm(overlay));
+    overlay.querySelector('#qfVersionList')?.addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-restore-version]');
+      if (!button) return;
+      void this.restoreFormVersion(Number(button.dataset.restoreVersion));
+    });
     overlay.addEventListener('click', event => {
       if (event.target === overlay) this.closeQuestionForm();
     });
@@ -1243,6 +1282,30 @@ export class QuestionBankView {
     }
   }
 
+  /** Restore a stored snapshot, then reopen the form with refreshed history. */
+  private async restoreFormVersion(version: number): Promise<void> {
+    const id = this.formQuestion?.id;
+    if (!id || !Number.isFinite(version)) return;
+    if (!(await this.confirmAction(
+      t('qb.versionRestoreConfirm', { version }),
+      t('qb.restore')
+    ))) return;
+
+    try {
+      const restored = await questionsRepo.restoreVersion(id, version);
+      if (!restored) {
+        showToast(t('qb.versionNotFound'), 'error');
+        return;
+      }
+      this.closeQuestionForm();
+      showToast(t('qb.versionRestored', { version }), 'success');
+      await this.reloadAfterMutation();
+      await this.editQuestion(id);
+    } catch (error) {
+      showToast(t('error.saveFailed', { error: String(error) }), 'error');
+    }
+  }
+
   private closeQuestionForm(): void {
     this.editors.stem?.cleanup();
     this.editors.explanation?.cleanup();
@@ -1251,11 +1314,12 @@ export class QuestionBankView {
     this.formOverlay = null;
     this.formDraft = null;
     this.formQuestion = undefined;
+    this.formVersions = [];
     if (overlay) closeModal(overlay);
   }
 
   /** Small accessible confirmation dialog (no blocking window.confirm). */
-  private confirmAction(message: string): Promise<boolean> {
+  private confirmAction(message: string, confirmLabel = t('common.delete')): Promise<boolean> {
     return new Promise(resolve => {
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
@@ -1265,7 +1329,7 @@ export class QuestionBankView {
           <div class="modal-body"><p style="margin:0;">${escapeHTML(message)}</p></div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" id="confirmCancel">${escapeHTML(t('common.cancel'))}</button>
-            <button type="button" class="btn btn-danger" id="confirmYes">${escapeHTML(t('common.delete'))}</button>
+            <button type="button" class="btn btn-danger" id="confirmYes">${escapeHTML(confirmLabel)}</button>
           </div>
         </div>`;
       document.body.appendChild(overlay);
@@ -1292,9 +1356,13 @@ export class QuestionBankView {
       const newQuestion = {
         ...question,
         id: generateId(),
+        // A duplicate starts a fresh history; copying snapshots would mix two
+        // question lineages in one version list.
+        versions: [],
         metadata: { ...question.metadata, createdAt: nowISO(), updatedAt: nowISO(), version: 1 },
-        statistics: { totalAttempts: 0, correctAttempts: 0, avgTimeMs: 0, masteryLevel: 0 },
+        statistics: { totalAttempts: 0, correctAttempts: 0, avgTimeMs: 0, masteryLevel: 0 as MasteryLevel },
       };
+      delete newQuestion.deletedAt;
       await questionsRepo.add(newQuestion);
       await this.reloadAfterMutation();
     }
