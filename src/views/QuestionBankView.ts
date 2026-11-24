@@ -37,7 +37,12 @@ import type {
   QuestionFlags,
   TopicCode,
 } from '../shared/types';
-import Fuse from 'fuse.js';
+import type Fuse from 'fuse.js';
+import {
+  createQuestionSearchIndex,
+  rankQuestionMatches,
+  searchableText,
+} from '../features/questions/question-search';
 import {
   Virtualizer,
   elementScroll,
@@ -82,23 +87,6 @@ function subdomainLabel(subdomain: KisiKisiTopic['subdomain']): string {
   return label === key ? subdomain : label;
 }
 
-/** Normalised searchable text, built at most once per question object. */
-const searchHaystacks = new WeakMap<object, string>();
-function searchableText(question: any): string {
-  const cached = searchHaystacks.get(question);
-  if (cached !== undefined) return cached;
-  const text = [
-    question.stem ?? '',
-    question.explanation ?? '',
-    ...(question.options ?? []).map((option: any) => option.text ?? ''),
-    ...(question.tags ?? []),
-  ]
-    .join('\n')
-    .toLowerCase();
-  searchHaystacks.set(question, text);
-  return text;
-}
-
 /** Derives the visible question set once per distinct search/filter key. */
 const selectFilteredQuestions = memoizeSelector(
   (
@@ -108,20 +96,14 @@ const selectFilteredQuestions = memoizeSelector(
     fuse: Fuse<any> | null
   ): any[] => {
     let filtered = [...questions];
+    // id → relevance score (lower is better). Fuse's includeScore results and
+    // the weighted literal fast path share this single ranking channel.
+    let searchScores: Map<string, number> | null = null;
 
     if (searchQuery && fuse) {
-      // O(n) literal match first. Fuse's fuzzy pass over 2000 questions with
-      // four weighted keys costs >1s; it is now only the fallback for queries
-      // with no literal hit (e.g. a typo). Exact searches stay <200ms.
-      const needle = searchQuery.toLowerCase();
-      const exact = questions.filter((q) => searchableText(q).includes(needle));
-      if (exact.length > 0) {
-        const exactIds = new Set(exact.map((q) => q.id));
-        filtered = filtered.filter((q) => exactIds.has(q.id));
-      } else {
-        const ids = new Set(fuse.search(searchQuery).map((r) => r.item.id));
-        filtered = filtered.filter((q) => ids.has(q.id));
-      }
+      searchScores = rankQuestionMatches(questions, searchQuery, fuse);
+      const ids = new Set(searchScores?.keys() ?? []);
+      filtered = filtered.filter((q) => ids.has(q.id));
     }
     if (filter.topicCodes?.length) {
       filtered = filtered.filter((q) => filter.topicCodes!.includes(q.topicCode));
@@ -150,7 +132,15 @@ const selectFilteredQuestions = memoizeSelector(
       });
     }
 
-    filtered.sort((a, b) => new Date(b.metadata.createdAt).getTime() - new Date(a.metadata.createdAt).getTime());
+    // Relevance first while searching; createdAt is the stable tie-breaker
+    // (and the only ordering when there is no search query).
+    filtered.sort((a, b) => {
+      if (searchScores) {
+        const scoreDiff = (searchScores.get(a.id) ?? 1) - (searchScores.get(b.id) ?? 1);
+        if (scoreDiff !== 0) return scoreDiff;
+      }
+      return new Date(b.metadata.createdAt).getTime() - new Date(a.metadata.createdAt).getTime();
+    });
     return filtered;
   },
   (_questions, searchQuery, filter, fuse) =>
@@ -216,18 +206,9 @@ export class QuestionBankView {
     // every option/tag of 2000 questions inside the interaction budget.
     this.questions.forEach(searchableText);
 
-    // Initialize Fuse.js for search
-    this.fuse = new Fuse(this.questions, {
-      keys: [
-        { name: 'stem', weight: 3 },
-        { name: 'options.text', weight: 2 },
-        { name: 'explanation', weight: 1.5 },
-        { name: 'tags', weight: 1 },
-      ],
-      threshold: 0.4,
-      includeScore: true,
-      minMatchCharLength: 2,
-    });
+    // Fuse index: stem 3x / options 2x / explanation 1.5x / tags 1x,
+    // threshold 0.4, minMatchCharLength 2, includeScore for ranking.
+    this.fuse = createQuestionSearchIndex(this.questions);
 
     this.applyFilters();
   }
