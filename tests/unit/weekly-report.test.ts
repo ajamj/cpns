@@ -101,6 +101,19 @@ describe('weekly report generation', () => {
     expect(result.markdown).toContain('- Total sesi: 0');
   });
 
+  it('does not count malformed completion timestamps as completed', () => {
+    const result = buildWeeklyReport({
+      generatedAt: NOW,
+      topics: [{ code: 'UM-01', title: 'Meteorologi' }],
+      masteryStats: stats({ 'UM-01': 1 }),
+      sessions: [{ startedAt: new Date(2026, 4, 15, 9).toISOString(), mode: 'practice', completedAt: 'not-a-date' }],
+      flashcardStats: flashcards,
+    });
+
+    expect(result.weeklySessions).toBe(1);
+    expect(result.completedSessions).toBe(0);
+  });
+
   it('builds a local-date .md filename', () => {
     expect(weeklyReportFilename(NOW)).toBe('weekly-report-2026-05-15.md');
   });

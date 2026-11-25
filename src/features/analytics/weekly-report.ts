@@ -79,6 +79,12 @@ function cell(value: unknown): string {
     .trim();
 }
 
+/** A session counts as completed only when its completion timestamp parses. */
+function isCompleted(session: WeeklyReportSession): boolean {
+  if (!session.completedAt) return false;
+  return Number.isFinite(new Date(session.completedAt).getTime());
+}
+
 function table(headers: readonly string[], rows: readonly (readonly unknown[])[]): string {
   return [
     `| ${headers.map(cell).join(' | ')} |`,
@@ -111,7 +117,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
     const timestamp = new Date(session.startedAt).getTime();
     return timestamp >= windowStart.getTime();
   });
-  const completedSessions = weekly.filter(session => Boolean(session.completedAt)).length;
+  const completedSessions = weekly.filter(isCompleted).length;
 
   const totalQuestions = Object.values(input.masteryStats).reduce((sum, stat) => sum + stat.total, 0);
   const totalMastered = Object.values(input.masteryStats).reduce((sum, stat) => sum + stat.mastered, 0);
@@ -147,7 +153,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
     return [
       dateLabel(date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
       sessionsOnDay.length,
-      sessionsOnDay.filter(session => Boolean(session.completedAt)).length,
+      sessionsOnDay.filter(isCompleted).length,
     ];
   });
 
