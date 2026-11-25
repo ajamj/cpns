@@ -21,12 +21,38 @@ import {
   type WeakArea,
 } from '../features/analytics/metrics';
 import { APP_CONFIG } from '../core/config';
-import { t } from '../core/i18n';
+import { getLocale, t } from '../core/i18n';
 import { showToast } from '../core/app-utils';
 import type { KisiKisiTopic, Session } from '../shared/types';
 
-/** Window of recent sessions used for both the activity list and streaks. */
-const SESSION_WINDOW = 500;
+/** Window of recent sessions used for the activity list, streaks and heatmap. */
+const SESSION_WINDOW = 1000;
+/** A year of activity: 53 Monday-first weeks (the current week included). */
+const HEATMAP_WEEKS = 53;
+const DAYS_PER_WEEK = 7;
+
+type HeatmapLevel = 0 | 1 | 2 | 3;
+
+interface HeatmapDay {
+  key: string;
+  count: number;
+  level: HeatmapLevel;
+  future: boolean;
+  tooltip: string;
+}
+
+function localDateKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function activityLevel(count: number): HeatmapLevel {
+  if (count <= 0) return 0;
+  if (count === 1) return 1;
+  if (count === 2) return 2;
+  return 3;
+}
 
 const READINESS_BAND_CLASSES = ['badge-danger', 'badge-warning', 'badge-success'] as const;
 const READINESS_BAND_COLORS = [
@@ -46,6 +72,7 @@ export class AnalyticsView {
   private weakAreas: WeakArea[] = [];
   private readiness: ReadinessResult = calculateReadiness([], {});
   private streaks: StreakResult = { current: 0, longest: 0, activeDays: 0 };
+  private activityCounts: Map<string, number> = new Map();
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -116,6 +143,82 @@ export class AnalyticsView {
           <div class="stat-icon" style="background:var(--color-primary-light);color:var(--color-primary);"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h12M6 12h12M6 16h8"/></svg></div>
           <div><div class="stat-value">${this.recentSessions.length}</div><div class="stat-label">Sesi Terbaru</div></div>
         </div></div>
+      </div>
+    `;
+  }
+
+  /**
+   * Build 53 Monday-first weeks ending with the current week. Counts come
+   * from the same session window as the streak calculation, so the calendar
+   * and the streak counters can never disagree.
+   */
+  private getHeatmapDays(): HeatmapDay[] {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const mondayOffset = (today.getDay() + 6) % DAYS_PER_WEEK;
+    const firstDay = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() - mondayOffset - (HEATMAP_WEEKS - 1) * DAYS_PER_WEEK
+    );
+    const locale = getLocale() === 'en' ? 'en-US' : 'id-ID';
+    const dateFormatter = new Intl.DateTimeFormat(locale, {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    });
+    const sessionWord = getLocale() === 'en' ? 'sessions' : 'sesi';
+    const days: HeatmapDay[] = [];
+
+    for (let index = 0; index < HEATMAP_WEEKS * DAYS_PER_WEEK; index++) {
+      const date = new Date(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate() + index);
+      const future = date.getTime() > today.getTime();
+      const count = future ? 0 : (this.activityCounts.get(localDateKey(date)) ?? 0);
+      const dateLabel = dateFormatter.format(date);
+      days.push({
+        key: localDateKey(date),
+        count,
+        level: activityLevel(count),
+        future,
+        tooltip: `${dateLabel} — ${count} ${sessionWord}`,
+      });
+    }
+    return days;
+  }
+
+  private getHeatmapHTML(): string {
+    const days = this.getHeatmapDays();
+    const isEnglish = getLocale() === 'en';
+    const locale = isEnglish ? 'en-US' : 'id-ID';
+    const weekdayFormatter = new Intl.DateTimeFormat(locale, { weekday: 'short' });
+    // 1 Jan 2024 was a Monday — a stable anchor for short weekday labels.
+    const weekdayLabels = Array.from({ length: DAYS_PER_WEEK }, (_, index) =>
+      weekdayFormatter.format(new Date(2024, 0, 1 + index))
+    );
+    const activeDaysThisYear = days.reduce((sum, day) => sum + (day.count > 0 ? 1 : 0), 0);
+    const latestMonth = days[days.length - 1]?.key.slice(0, 7) ?? '';
+    const earliestMonth = days[0]?.key.slice(0, 7) ?? '';
+
+    return `
+      <div class="streak-heatmap">
+        <div class="streak-summary">
+          <span class="streak-summary-item streak-summary-current">🔥 <strong>${this.streaks.current}</strong> ${isEnglish ? 'day streak' : 'hari berturut-turut'}</span>
+          <span class="streak-summary-item">${isEnglish ? 'Best' : 'Rekor terbaik'}: <strong>${this.streaks.longest}</strong> ${isEnglish ? 'days' : 'hari'} 🏆</span>
+          <span class="streak-summary-item">${activeDaysThisYear} ${isEnglish ? 'active days' : 'hari aktif'} (${earliestMonth} – ${latestMonth})</span>
+        </div>
+        <div class="streak-heatmap-body">
+          <div class="streak-heatmap-weekdays" aria-hidden="true">${weekdayLabels.map(label => `<span>${label}</span>`).join('')}</div>
+          <div class="streak-heatmap-grid" role="list" aria-label="${t('analytics.heatmap')}: ${activeDaysThisYear} ${isEnglish ? 'sessions' : 'sesi'}">
+            ${days.map(day => day.future
+              ? `<span class="streak-heatmap-cell is-future" aria-hidden="true"></span>`
+              : `<span class="streak-heatmap-cell heatmap-level-${day.level}" role="listitem"${day.count > 0 ? ' tabindex="0"' : ''}
+                    data-level="${day.level}" title="${day.tooltip}" aria-label="${day.tooltip}"></span>`
+            ).join('')}
+          </div>
+        </div>
+        <div class="streak-heatmap-legend" aria-hidden="true">
+          <span>${isEnglish ? 'Less' : 'Sedikit'}</span>
+          ${[0, 1, 2, 3].map(level => `<span class="streak-heatmap-cell heatmap-level-${level}"></span>`).join('')}
+          <span>${isEnglish ? 'More' : 'Banyak'}</span>
+        </div>
       </div>
     `;
   }
@@ -213,6 +316,10 @@ export class AnalyticsView {
       </div>
       ${this.getReadinessHTML()}
       ${this.getStatsHTML()}
+      <section class="card streak-heatmap-card">
+        <div class="card-header"><h2 class="card-title">${t('analytics.heatmap')}</h2><span class="badge badge-warning">🔥 ${this.streaks.current} ${getLocale() === 'en' ? 'days' : 'hari'}</span></div>
+        <div class="card-content">${this.getHeatmapHTML()}</div>
+      </section>
       <div class="analytics-content-grid">
         <section class="card">
           <div class="card-header"><h2 class="card-title">${t('analytics.masteryGrid')}</h2></div>
@@ -326,6 +433,14 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
     this.readiness = calculateReadiness(topicCodes, masteryStats, this.weights);
     this.weakAreas = calculateWeakAreas(this.topics, masteryStats, this.weights, 5);
     this.streaks = calculateStreaks(sessions);
+    this.activityCounts = new Map<string, number>();
+    for (const session of sessions) {
+      if (!session.startedAt) continue;
+      const timestamp = new Date(session.startedAt).getTime();
+      if (!Number.isFinite(timestamp)) continue;
+      const key = localDateKey(new Date(timestamp));
+      this.activityCounts.set(key, (this.activityCounts.get(key) ?? 0) + 1);
+    }
   }
 
   render(): HTMLElement {
