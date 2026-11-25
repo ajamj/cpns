@@ -1,5 +1,7 @@
 // Mock Exam View (CAT Simulation)
 import { questionsRepo, type MockExamSelectionConfig } from '../db/repositories/questions';
+import { sessionsRepo } from '../db/repositories/sessions';
+import { attemptsRepo } from '../db/repositories/attempts';
 import {
   getSubdomainColor,
   loadKisiKisi,
@@ -8,9 +10,17 @@ import {
   getTopicWeight,
 } from '../features/kisi-kisi/registry';
 import { navigate, t } from '../core/i18n';
+import { eventBus } from '../core/events';
 import { generateId, nowISO, formatTime } from '../core/utils';
 import { APP_CONFIG } from '../core/config';
-import type { Difficulty, Question, TopicCode } from '../shared/types';
+import type {
+  Attempt,
+  Difficulty,
+  Question,
+  Session,
+  SessionSummary,
+  TopicCode,
+} from '../shared/types';
 
 /** Exam form values; topicWeights is keyed by the topic codes shown in the form. */
 interface MockExamConfig {
@@ -21,21 +31,68 @@ interface MockExamConfig {
   difficultyMix: Record<Difficulty, number>;
 }
 
+interface MockExamAnswer {
+  userAnswer: number[];
+  isCorrect: boolean;
+  timeMs: number;
+  flagged: boolean;
+  markedReview: boolean;
+}
+
 interface MockExamSession {
   id: string;
   config: MockExamConfig;
   questions: Question[];
   currentIndex: number;
-  answers: Map<string, { userAnswer: number[]; isCorrect: boolean; timeMs: number; flagged: boolean; markedReview: boolean }>;
+  answers: Map<string, MockExamAnswer>;
+  /** Flags live in the session even before a question has been answered. */
   flags: Set<string>;
   markedReview: Set<string>;
   startTime: number;
+  /** Absolute deadline: elapsed time must not be accumulated from setInterval ticks. */
+  endsAt: number;
   timeRemainingMs: number;
   timerId: ReturnType<typeof setInterval> | null;
   status: 'config' | 'ready' | 'active' | 'paused' | 'confirming' | 'review';
 }
 
 const DEFAULT_DIFFICULTY_MIX: Record<Difficulty, number> = { 1: 30, 2: 50, 3: 20 };
+
+export type TimerWarningLevel = 'normal' | 'warning' | 'danger' | 'critical';
+
+/** 15 min → warning, 5 min → danger, 1 min → critical. */
+export function getTimerWarningLevel(remainingMs: number): TimerWarningLevel {
+  if (remainingMs <= 60_000) return 'critical';
+  if (remainingMs <= 5 * 60_000) return 'danger';
+  if (remainingMs <= 15 * 60_000) return 'warning';
+  return 'normal';
+}
+
+export type NavigatorStatus = 'current' | 'flagged' | 'marked' | 'answered' | 'unvisited';
+
+/** Visual priority for a navigator cell; flags stay visible on answered items. */
+export function getNavigatorStatus(cell: {
+  current: boolean;
+  flagged: boolean;
+  markedReview: boolean;
+  answered: boolean;
+}): NavigatorStatus {
+  if (cell.current) return 'current';
+  if (cell.flagged) return 'flagged';
+  if (cell.markedReview) return 'marked';
+  if (cell.answered) return 'answered';
+  return 'unvisited';
+}
+
+export function calculateExamScore(correctAnswers: number, totalQuestions: number): number {
+  if (totalQuestions <= 0) return 0;
+  return Math.round((correctAnswers / totalQuestions) * 100);
+}
+
+/** Countdown from the absolute deadline (never from accumulated tick counts). */
+export function getRemainingMs(endsAt: number, now = Date.now()): number {
+  return Math.max(0, endsAt - now);
+}
 
 function escapeHTML(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, char => {
@@ -55,9 +112,17 @@ export class MockExamView {
   private session: MockExamSession | null = null;
   private questionStartTime = 0;
   private allQuestions: Question[] = [];
+  private autoSubmitted = false;
+  private routeHandler: ((route: { view: string }) => void) | null = null;
 
   constructor(params: Record<string, string>) {
     this.params = params;
+    // The router does not call destroy() on navigation; without this guard a
+    // stale view keeps ticking its timer and answering keyboard shortcuts.
+    this.routeHandler = route => {
+      if (route.view !== 'mock-exam') this.destroy();
+    };
+    eventBus.on('route:changed', this.routeHandler);
   }
 
   async loadQuestions(): Promise<void> {
@@ -183,13 +248,17 @@ export class MockExamView {
   private getExamHTML(): string {
     if (!this.session) return '';
     const q = this.session.questions[this.session.currentIndex];
+    if (!q) return '';
     const progress = ((this.session.currentIndex + 1) / this.session.questions.length) * 100;
     const answer = this.session.answers.get(q.id);
     const isAnswered = !!answer;
     const isFlagged = this.session.flags.has(q.id);
     const isMarked = this.session.markedReview.has(q.id);
+    this.syncRemainingTime();
     const timeStr = formatTime(this.session.timeRemainingMs);
-    const warningClass = this.session.timeRemainingMs <= 60000 ? 'danger' : this.session.timeRemainingMs <= 300000 ? 'warning' : this.session.timeRemainingMs <= 900000 ? 'info' : '';
+    const warningLevel = getTimerWarningLevel(this.session.timeRemainingMs);
+    const warningClass = warningLevel === 'normal' ? '' : ` ${warningLevel}`;
+    const warningStyle = this.timerStyle(warningLevel);
 
     return `
       <div class="exam-header" style="position:fixed;top:0;left:0;right:0;background:var(--color-bg-elevated);border-bottom:1px solid var(--color-border);padding:var(--space-3) var(--space-4);z-index:var(--z-sticky);box-shadow:var(--shadow-md);">
@@ -199,10 +268,11 @@ export class MockExamView {
             <span class="badge badge-${isFlagged ? 'warning' : isMarked ? 'info' : 'muted'}">${isFlagged ? '⚑ Flagged' : isMarked ? '★ Review' : ''}</span>
           </div>
           <div style="display:flex;align-items:center;gap:var(--space-4);">
-            <div class="timer ${warningClass}" role="timer" aria-label="${t('mock.duration')}" aria-live="off" style="font-size:var(--text-2xl);font-weight:var(--font-bold);font-family:var(--font-mono);font-variant-numeric:tabular-nums;${this.session.timeRemainingMs <= 60000 ? 'color:var(--color-danger);animation:pulse 1s infinite;' : this.session.timeRemainingMs <= 300000 ? 'color:var(--color-warning);' : ''}">
+            <div class="timer${warningClass}" data-warning-level="${warningLevel}" role="timer" aria-label="${t('mock.duration')}" aria-live="off" style="font-size:var(--text-2xl);font-weight:var(--font-bold);font-family:var(--font-mono);font-variant-numeric:tabular-nums;${warningStyle}">
               ${timeStr}
             </div>
-            <div class="timer-warning visually-hidden" role="status" aria-live="assertive" aria-atomic="true">${this.getTimerWarning()}</div>
+            ${warningLevel === 'normal' ? '' : `<div class="timer-alert ${warningLevel}" data-timer-alert="${warningLevel}" role="presentation">${escapeHTML(this.getTimerWarning())}</div>`}
+            <div class="timer-warning visually-hidden" role="status" aria-live="assertive" aria-atomic="true">${escapeHTML(this.getTimerWarning())}</div>
             <div style="display:flex;gap:var(--space-2);">
               <button type="button" class="btn btn-ghost btn-icon" id="btnFlagExam" aria-label="${t('mock.flag')}" aria-pressed="${this.session.flags.has(q.id)}" title="${t('mock.flag')}" style="${this.session.flags.has(q.id) ? 'color:var(--color-warning);' : ''}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></button>
               <button type="button" class="btn btn-ghost btn-icon" id="btnMarkReviewExam" aria-label="${t('mock.markReview')}" aria-pressed="${this.session.markedReview.has(q.id)}" title="${t('mock.markReview')}" style="${this.session.markedReview.has(q.id) ? 'color:var(--color-info);' : ''}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 21l-7-7-7 7-7-7-7 7"/><path d="M2 19l7-7 7 7"/></svg></button>
@@ -259,20 +329,7 @@ export class MockExamView {
                   </div>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px;">
-                  ${this.session.questions.map((_, i) => {
-                    const isCurrent = i === this.session.currentIndex;
-                    const isAnswered = this.session.answers.has(this.session.questions[i].id);
-                    const isFlagged = this.session.flags.has(this.session.questions[i].id);
-                    const isMarked = this.session.markedReview.has(this.session.questions[i].id);
-                    let cls = 'nav-cell';
-                    if (isCurrent) cls += ' current';
-                    else if (isFlagged && isAnswered) cls += ' answered flagged';
-                    else if (isFlagged) cls += ' flagged';
-                    else if (isMarked) cls += ' marked';
-                    else if (isAnswered) cls += ' answered';
-                    const status = isCurrent ? ', sedang dikerjakan' : isFlagged ? ', ditandai' : isMarked ? ', perlu ditinjau' : isAnswered ? ', sudah dijawab' : ', belum dijawab';
-                    return `<button type="button" class="${cls}" data-index="${i}" aria-label="Soal ${i + 1}${status}" aria-current="${isCurrent ? 'true' : 'false'}" style="min-width:44px;min-height:44px;aspect-ratio:1;border:2px solid;border-radius:var(--radius-md);font-weight:var(--font-semibold);font-size:var(--text-sm);${isCurrent ? `background:var(--color-primary);color:var(--color-on-primary);border-color:var(--color-primary);` : isFlagged && isAnswered ? `background:var(--color-success);color:var(--color-on-success);border-color:var(--color-warning);` : isFlagged ? 'border-color:var(--color-warning);color:var(--color-warning);' : isMarked ? 'border-color:var(--color-info);color:var(--color-info);' : isAnswered ? `background:var(--color-success);color:var(--color-on-success);border-color:var(--color-success);` : 'background:var(--color-bg);color:var(--color-text-muted);border-color:var(--color-border-strong);'}">${i + 1}</button>`;
-                  }).join('')}
+                  ${this.session.questions.map((_, i) => this.getNavCellHTML(i)).join('')}
                 </div>
               </div>
             </div>
@@ -281,16 +338,54 @@ export class MockExamView {
       `;
   }
 
+  /** Navigator cells: one per selected question, with an explicit status class. */
+  private getNavCellHTML(index: number): string {
+    const session = this.session;
+    if (!session) return '';
+    const question = session.questions[index];
+    if (!question) return '';
+    const isCurrent = index === session.currentIndex;
+    const isAnswered = session.answers.has(question.id);
+    const isFlagged = session.flags.has(question.id);
+    const isMarked = session.markedReview.has(question.id);
+    const status = getNavigatorStatus({ current: isCurrent, flagged: isFlagged, markedReview: isMarked, answered: isAnswered });
+    const statusLabel = t(`mock.nav.${status}`);
+    // An answered question that is also flagged keeps the green fill and gains
+    // a warning border, so neither state is lost.
+    const style = status === 'current'
+      ? 'background:var(--color-primary);color:var(--color-on-primary);border-color:var(--color-primary);'
+      : isFlagged && isAnswered
+        ? 'background:var(--color-success);color:var(--color-on-success);border-color:var(--color-warning);'
+        : isFlagged
+          ? 'border-color:var(--color-warning);color:var(--color-warning);'
+          : isMarked
+            ? 'border-color:var(--color-info);color:var(--color-info);'
+            : isAnswered
+              ? 'background:var(--color-success);color:var(--color-on-success);border-color:var(--color-success);'
+              : 'background:var(--color-bg);color:var(--color-text-muted);border-color:var(--color-border-strong);';
+    const extraClass = isFlagged && isAnswered ? ' answered flagged' : '';
+    return `<button type="button" class="nav-cell ${status}${extraClass}" data-index="${index}" data-status="${status}" aria-label="${escapeHTML(t('mock.navigator'))} ${index + 1}: ${escapeHTML(statusLabel)}" aria-current="${isCurrent ? 'true' : 'false'}" style="min-width:44px;min-height:44px;aspect-ratio:1;border:2px solid;border-radius:var(--radius-md);font-weight:var(--font-semibold);font-size:var(--text-sm);${style}">${index + 1}</button>`;
+  }
+
+  private timerStyle(level: TimerWarningLevel): string {
+    if (level === 'critical') return 'color:var(--color-danger);animation:pulse 1s infinite;';
+    if (level === 'danger') return 'color:var(--color-warning);';
+    if (level === 'warning') return 'color:var(--color-info);';
+    return '';
+  }
+
   private getReviewHTML(): string {
-    if (!this.session) return '';
-    const correctCount = Array.from(this.session.answers.values()).filter(a => a.isCorrect).length;
-    const scorePercent = Math.round((correctCount / this.session.questions.length) * 100);
-    const totalTime = Date.now() - this.session.startTime;
+    const session = this.session;
+    if (!session) return '';
+    const correctCount = Array.from(session.answers.values()).filter(a => a.isCorrect).length;
+    const scorePercent = calculateExamScore(correctCount, session.questions.length);
+    const totalTime = Date.now() - session.startTime;
 
     return `
       <div class="page-header">
         <h1 class="page-title">${t('mock.results')}</h1>
-        <p class="page-subtitle">${t('practice.score', { correct: correctCount, total: this.session.questions.length, percent: scorePercent })} • Waktu: ${formatTime(totalTime)}</p>
+        <p class="page-subtitle">${t('practice.score', { correct: correctCount, total: session.questions.length, percent: scorePercent })} • Waktu: ${formatTime(totalTime)}</p>
+        ${this.autoSubmitted ? `<p class="badge badge-warning" role="status">${t('mock.autoSubmit')}</p>` : ''}
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--space-4);margin-bottom:var(--space-6);">
@@ -299,7 +394,7 @@ export class MockExamView {
             <div style="font-size:var(--text-4xl);font-weight:var(--font-bold);color:${scorePercent >= 70 ? 'var(--color-success)' : 'var(--color-primary)'};">${scorePercent}%</div>
             <div style="margin-top:var(--space-2);color:var(--color-text-muted);">${t('mock.overallScore')}</div>
             <div style="margin-top:var(--space-4);font-size:var(--text-sm);color:var(--color-text-muted);">
-              Benar: <strong style="color:var(--color-success);">${correctCount}</strong> / ${this.session.questions.length}
+              Benar: <strong style="color:var(--color-success);">${correctCount}</strong> / ${session.questions.length}
             </div>
             <div style="margin-top:var(--space-1);font-size:var(--text-sm);color:var(--color-text-muted);">
               Waktu: <strong>${formatTime(totalTime)}</strong>
@@ -319,8 +414,8 @@ export class MockExamView {
           <h2 class="card-title">${t('mock.reviewMode')}</h2>
         </div>
         <div class="card-content">
-          ${this.session.questions.map((q, i) => {
-            const ans = this.session.answers.get(q.id);
+          ${session.questions.map((q, i) => {
+            const ans = session.answers.get(q.id);
             const isCorrect = ans?.isCorrect;
             const userAns = ans?.userAnswer[0];
             return `
@@ -363,14 +458,16 @@ export class MockExamView {
   }
 
   private getPerTopicHTML(): string {
-    if (!this.session) return '';
+    const session = this.session;
+    if (!session) return '';
     const topicStats: Record<string, { total: number; correct: number }> = {};
-    
-    this.session.questions.forEach(q => {
-      const ans = this.session!.answers.get(q.id);
-      if (!topicStats[q.topicCode]) topicStats[q.topicCode] = { total: 0, correct: 0 };
-      topicStats[q.topicCode].total++;
-      if (ans?.isCorrect) topicStats[q.topicCode].correct++;
+
+    session.questions.forEach(q => {
+      const ans = session.answers.get(q.id);
+      const stats = topicStats[q.topicCode] ?? { total: 0, correct: 0 };
+      topicStats[q.topicCode] = stats;
+      stats.total++;
+      if (ans?.isCorrect) stats.correct++;
     });
 
     return Object.entries(topicStats).map(([code, stats]) => {
@@ -395,6 +492,8 @@ export class MockExamView {
       return;
     }
 
+    const startedAt = Date.now();
+    const durationMs = config.durationMinutes * 60 * 1000;
     this.session = {
       id: generateId(),
       config,
@@ -403,69 +502,102 @@ export class MockExamView {
       answers: new Map(),
       flags: new Set(),
       markedReview: new Set(),
-      startTime: Date.now(),
-      timeRemainingMs: config.durationMinutes * 60 * 1000,
+      startTime: startedAt,
+      endsAt: startedAt + durationMs,
+      timeRemainingMs: durationMs,
       timerId: null,
       status: 'active',
     };
+    this.autoSubmitted = false;
 
-    this.questionStartTime = Date.now();
+    this.questionStartTime = startedAt;
     this.element?.setAttribute('data-exam-active', 'true');
-    this.startTimer();
     this.renderExam();
-    this.enterFullscreen();
-    this.bindExamEvents();
+    this.startTimer();
+    void this.enterFullscreen();
   }
 
   private startTimer(): void {
-    if (!this.session) return;
-    this.session.timerId = setInterval(() => {
-      if (!this.session || this.session.status !== 'active') return;
-      this.session.timeRemainingMs -= 1000;
-      if (this.session.timeRemainingMs <= 0) {
-        this.session.timeRemainingMs = 0;
+    this.stopTimer();
+    const session = this.session;
+    if (!session) return;
+    session.timerId = setInterval(() => {
+      // The session may have been replaced while a stale interval was pending.
+      if (this.session !== session || session.status !== 'active') {
+        this.stopTimer();
+        return;
+      }
+      this.syncRemainingTime();
+      if (session.timeRemainingMs <= 0) {
         this.autoSubmit();
+        return;
       }
       this.updateTimerDisplay();
     }, 1000);
   }
 
+  /** Derive the countdown from the deadline so background throttling cannot drift. */
+  private syncRemainingTime(): void {
+    if (!this.session) return;
+    this.session.timeRemainingMs = getRemainingMs(this.session.endsAt);
+  }
+
   private updateTimerDisplay(): void {
     if (!this.session || !this.element) return;
-    const timerEl = this.element.querySelector('.timer');
+    const level = getTimerWarningLevel(this.session.timeRemainingMs);
+    const timerEl = this.element.querySelector<HTMLElement>('.timer');
     if (timerEl) {
       timerEl.textContent = formatTime(this.session.timeRemainingMs);
-      timerEl.className = 'timer';
-      if (this.session.timeRemainingMs <= 60000) timerEl.classList.add('danger');
-      else if (this.session.timeRemainingMs <= 300000) timerEl.classList.add('warning');
-      else if (this.session.timeRemainingMs <= 900000) timerEl.classList.add('info');
+      timerEl.className = `timer${level === 'normal' ? '' : ` ${level}`}`;
+      timerEl.dataset.warningLevel = level;
+      timerEl.style.cssText = 'font-size:var(--text-2xl);font-weight:var(--font-bold);font-family:var(--font-mono);font-variant-numeric:tabular-nums;' + this.timerStyle(level);
+    }
+
+    const warning = this.getTimerWarning();
+    let alertEl = this.element.querySelector<HTMLElement>('.timer-alert');
+    if (level === 'normal') {
+      alertEl?.remove();
+    } else {
+      if (!alertEl) {
+        alertEl = document.createElement('div');
+        alertEl.className = 'timer-alert';
+        alertEl.setAttribute('role', 'presentation');
+        timerEl?.insertAdjacentElement('afterend', alertEl);
+      }
+      alertEl.className = `timer-alert ${level}`;
+      alertEl.dataset.timerAlert = level;
+      alertEl.textContent = warning;
     }
 
     // Only the warning is a live region; the ticking timer itself is silent so
     // screen readers are not interrupted every second.
     const warningEl = this.element.querySelector<HTMLElement>('.timer-warning');
-    const warning = this.getTimerWarning();
     if (warningEl && warningEl.textContent !== warning) warningEl.textContent = warning;
   }
 
-  /** Announced only when a time threshold is crossed, never every second. */
+  /** Thresholds are announced once per level, never on every tick. */
   private getTimerWarning(): string {
     if (!this.session) return '';
-    if (this.session.timeRemainingMs <= 60000) return 'Sisa waktu 1 menit. Segera selesaikan ujian.';
-    if (this.session.timeRemainingMs <= 300000) return 'Sisa waktu 5 menit.';
-    return '';
+    switch (getTimerWarningLevel(this.session.timeRemainingMs)) {
+      case 'critical': return t('mock.warning1');
+      case 'danger': return t('mock.warning5');
+      case 'warning': return t('mock.warning15');
+      default: return '';
+    }
   }
 
   private autoSubmit(): void {
-    if (!this.session) return;
+    if (!this.session || this.session.status === 'review') return;
+    this.autoSubmitted = true;
     this.stopTimer();
-    this.finishExam();
+    void this.finishExam();
   }
 
   private stopTimer(): void {
-    if (this.session?.timerId) {
-      clearInterval(this.session.timerId);
-      this.session.timerId = null;
+    const timerId = this.session?.timerId;
+    if (timerId) {
+      clearInterval(timerId);
+      this.session!.timerId = null;
     }
   }
 
@@ -561,189 +693,227 @@ export class MockExamView {
   private bindExamEvents(): void {
     if (!this.element || !this.session) return;
 
-    // Option selection
-    this.element.querySelectorAll('.exam-option:not(.selected)').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        this.selectOption(parseInt(target.dataset.option!));
-      });
+    // Option selection (answers can be revised until submit).
+    this.element.querySelectorAll<HTMLButtonElement>('.exam-option').forEach(btn => {
+      btn.addEventListener('click', () => this.selectOption(Number(btn.dataset.option)));
     });
 
     // Navigator
-    this.element.querySelectorAll('.nav-cell').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        this.jumpToQuestion(parseInt((e.currentTarget as HTMLButtonElement).dataset.index!));
-      });
+    this.element.querySelectorAll<HTMLButtonElement>('.nav-cell').forEach(btn => {
+      btn.addEventListener('click', () => this.jumpToQuestion(Number(btn.dataset.index)));
     });
 
     // Flag/Mark Review/Submit
     this.element.querySelector('#btnFlagExam')?.addEventListener('click', () => this.toggleFlag());
     this.element.querySelector('#btnMarkReviewExam')?.addEventListener('click', () => this.toggleMarkReview());
     this.element.querySelector('#btnSubmitExam')?.addEventListener('click', () => this.confirmSubmit());
+    this.element.querySelector('#btnReviewAgain')?.addEventListener('click', () => this.showConfig());
 
-    // Keyboard
+    // Keyboard (one listener; addEventListener dedupes the same handler).
     document.addEventListener('keydown', this.handleKeys);
   }
 
   private handleKeys = (e: KeyboardEvent): void => {
-    if (!this.session || this.session.status !== 'active') return;
+    if (!this.session || this.session.status !== 'active' || !this.element?.isConnected) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.altKey || e.ctrlKey || e.metaKey) {
+      if (e.key === 'Enter') this.confirmSubmit();
+      return;
+    }
+    // Let native button/link activation handle Enter when one has focus.
+    if (e.key === 'Enter' && e.target instanceof HTMLElement && e.target.closest('button, a, select')) return;
+    const question = this.session.questions[this.session.currentIndex];
+    if (!question) return;
 
     if (e.key >= '1' && e.key <= '5') {
-      this.selectOption(parseInt(e.key) - 1);
+      const index = Number(e.key) - 1;
+      if (index < question.options.length) this.selectOption(index);
     } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
       this.navigate(-1);
     } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
       this.navigate(1);
     } else if (e.key === 'f' || e.key === 'F') {
       this.toggleFlag();
     } else if (e.key === 'm' || e.key === 'M') {
       this.toggleMarkReview();
-    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    } else if (e.key === 'Enter') {
       this.confirmSubmit();
     }
   };
 
   private selectOption(optionIndex: number): void {
-    if (!this.session) return;
-    const q = this.session.questions[this.session.currentIndex];
-    const timeMs = Date.now() - this.questionStartTime;
-    const isCorrect = q.correctAnswer.includes(optionIndex);
+    const session = this.session;
+    if (!session || session.status !== 'active') return;
+    const q = session.questions[session.currentIndex];
+    if (!q || !Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= q.options.length) return;
 
-    this.session.answers.set(q.id, {
+    const timeMs = Math.max(0, Date.now() - this.questionStartTime);
+    session.answers.set(q.id, {
       userAnswer: [optionIndex],
-      isCorrect,
+      isCorrect: q.correctAnswer.includes(optionIndex),
       timeMs,
-      flagged: this.session.flags.has(q.id),
-      markedReview: this.session.markedReview.has(q.id),
+      flagged: session.flags.has(q.id),
+      markedReview: session.markedReview.has(q.id),
     });
 
+    // Answers are restored from the map on render, so changing an answer and
+    // navigating back to a question both work without losing previous state.
     this.questionStartTime = Date.now();
     this.renderExam();
   }
 
   private navigate(direction: number): void {
-    if (!this.session) return;
-    const newIndex = this.session.currentIndex + direction;
-    if (newIndex >= 0 && newIndex < this.session.questions.length) {
-      this.session.currentIndex = newIndex;
+    const session = this.session;
+    if (!session || session.status !== 'active') return;
+    const newIndex = session.currentIndex + direction;
+    if (newIndex >= 0 && newIndex < session.questions.length) {
+      session.currentIndex = newIndex;
+      this.questionStartTime = Date.now();
       this.renderExam();
     }
   }
 
   private jumpToQuestion(index: number): void {
-    if (!this.session) return;
-    if (index >= 0 && index < this.session.questions.length) {
-      this.session.currentIndex = index;
+    const session = this.session;
+    if (!session || session.status !== 'active' || !Number.isInteger(index)) return;
+    if (index >= 0 && index < session.questions.length) {
+      session.currentIndex = index;
+      this.questionStartTime = Date.now();
       this.renderExam();
     }
   }
 
   private toggleFlag(): void {
-    if (!this.session) return;
-    const q = this.session.questions[this.session.currentIndex];
-    if (this.session.flags.has(q.id)) this.session.flags.delete(q.id);
-    else this.session.flags.add(q.id);
+    const session = this.session;
+    if (!session || session.status !== 'active') return;
+    const q = session.questions[session.currentIndex];
+    if (!q) return;
+    const flagged = !session.flags.has(q.id);
+    if (flagged) session.flags.add(q.id);
+    else session.flags.delete(q.id);
+    // Keep an already-recorded answer in sync so the flag survives persistence.
+    const answer = session.answers.get(q.id);
+    if (answer) answer.flagged = flagged;
     this.renderExam();
   }
 
   private toggleMarkReview(): void {
-    if (!this.session) return;
-    const q = this.session.questions[this.session.currentIndex];
-    if (this.session.markedReview.has(q.id)) this.session.markedReview.delete(q.id);
-    else this.session.markedReview.add(q.id);
+    const session = this.session;
+    if (!session || session.status !== 'active') return;
+    const q = session.questions[session.currentIndex];
+    if (!q) return;
+    const marked = !session.markedReview.has(q.id);
+    if (marked) session.markedReview.add(q.id);
+    else session.markedReview.delete(q.id);
+    const answer = session.answers.get(q.id);
+    if (answer) answer.markedReview = marked;
     this.renderExam();
   }
 
   private confirmSubmit(): void {
-    if (!this.session) return;
-    const unanswered = this.session.questions.filter(q => !this.session!.answers.has(q.id)).length;
-    const flagged = this.session.flags.size;
-    
-    if (unanswered > 0 || flagged > 0) {
-      if (!confirm(`${t('mock.confirmSubmit', { unanswered, flagged })}`)) return;
-    }
-    this.finishExam();
+    const session = this.session;
+    if (!session || session.status !== 'active') return;
+    const unanswered = session.questions.filter(q => !session.answers.has(q.id)).length;
+    const flagged = session.flags.size;
+
+    // Keep the native blocking dialog: during a CAT the countdown must not be
+    // bypassed by a background modal, and the counts are shown before commit.
+    const message = `${t('mock.confirmSubmit', { unanswered, flagged })}\nAre you sure you want to submit?`;
+    if (!window.confirm(message)) return;
+    void this.finishExam();
   }
 
-  private finishExam(): void {
-    if (!this.session) return;
+  private async finishExam(): Promise<void> {
+    const session = this.session;
+    if (!session || session.status === 'review') return;
     this.stopTimer();
     this.exitFullscreen();
     this.element?.removeAttribute('data-exam-active');
-    this.session.status = 'review';
-    this.saveSession();
+    session.status = 'review';
+    this.syncRemainingTime();
+    try {
+      await this.saveSession();
+    } catch (error) {
+      console.error('MockExamView: could not save completed session', error);
+    }
     this.renderExam();
   }
 
   private async saveSession(): Promise<void> {
-    if (!this.session) return;
-    
-    const correctCount = Array.from(this.session.answers.values()).filter(a => a.isCorrect).length;
-    const totalTime = Date.now() - this.session.startTime;
+    const session = this.session;
+    if (!session) return;
 
-    const summary = {
-      totalQuestions: this.session.questions.length,
-      answeredQuestions: this.session.answers.size,
+    const correctCount = Array.from(session.answers.values()).filter(a => a.isCorrect).length;
+    const summary: SessionSummary = {
+      totalQuestions: session.questions.length,
+      answeredQuestions: session.answers.size,
       correctAnswers: correctCount,
-      scorePercent: Math.round((correctCount / this.session.questions.length) * 100),
-      timeSpentMs: totalTime,
-      perTopic: {} as any,
+      scorePercent: calculateExamScore(correctCount, session.questions.length),
+      timeSpentMs: Math.max(0, Date.now() - session.startTime),
+      perTopic: {},
     };
 
-    this.session.questions.forEach(q => {
-      const ans = this.session!.answers.get(q.id);
-      if (!summary.perTopic[q.topicCode]) {
-        summary.perTopic[q.topicCode] = { attempted: 0, correct: 0, avgTimeMs: 0 };
-      }
+    session.questions.forEach(q => {
+      const ans = session.answers.get(q.id);
+      const topic = summary.perTopic[q.topicCode] ?? { attempted: 0, correct: 0, avgTimeMs: 0 };
+      summary.perTopic[q.topicCode] = topic;
       if (ans) {
-        summary.perTopic[q.topicCode].attempted++;
-        if (ans.isCorrect) summary.perTopic[q.topicCode].correct++;
-        summary.perTopic[q.topicCode].avgTimeMs += ans.timeMs;
+        topic.attempted++;
+        if (ans.isCorrect) topic.correct++;
+        topic.avgTimeMs += ans.timeMs;
       }
     });
-
-    Object.keys(summary.perTopic).forEach(topic => {
-      if (summary.perTopic[topic].attempted > 0) {
-        summary.perTopic[topic].avgTimeMs = Math.round(summary.perTopic[topic].avgTimeMs / summary.perTopic[topic].attempted);
-      }
+    Object.values(summary.perTopic).forEach(topic => {
+      if (topic.attempted > 0) topic.avgTimeMs = Math.round(topic.avgTimeMs / topic.attempted);
     });
 
-    const sessionRecord = {
-      id: this.session!.id,
-      mode: 'mock-exam' as const,
-      startedAt: new Date(this.session!.startTime).toISOString(),
+    const sessionRecord: Session = {
+      id: session.id,
+      mode: 'mock-exam',
+      startedAt: new Date(session.startTime).toISOString(),
       completedAt: nowISO(),
-      config: this.session!.config,
-      topicCodes: this.session!.questions.map(q => q.topicCode),
+      config: session.config,
+      topicCodes: session.questions.map(q => q.topicCode),
       summary,
     };
+    await sessionsRepo.put(sessionRecord);
 
-    await import('../db/repositories/sessions').then(m => m.sessionsRepo.put(sessionRecord));
-
-    // Record attempts
-    const attempts: any[] = [];
-    this.session.questions.forEach(q => {
-      const ans = this.session!.answers.get(q.id);
-      if (ans) {
-        attempts.push({
-          sessionId: this.session!.id,
-          questionId: q.id,
-          userAnswer: ans.userAnswer,
-          isCorrect: ans.isCorrect,
-          timeMs: ans.timeMs,
-          timestamp: nowISO(),
-          flagged: ans.flagged,
-          markedForReview: ans.markedReview,
-        });
-      }
+    const attempts: Attempt[] = [];
+    session.questions.forEach(q => {
+      const ans = session.answers.get(q.id);
+      if (!ans) return;
+      attempts.push({
+        sessionId: session.id,
+        questionId: q.id,
+        userAnswer: ans.userAnswer,
+        isCorrect: ans.isCorrect,
+        timeMs: ans.timeMs,
+        timestamp: nowISO(),
+        // Re-read the sets so flags toggled after answering are not lost.
+        flagged: session.flags.has(q.id),
+        markedForReview: session.markedReview.has(q.id),
+      });
     });
-    await import('../db/repositories/attempts').then(m => m.attemptsRepo.bulkAdd(attempts));
+    if (attempts.length > 0) await attemptsRepo.bulkAdd(attempts);
 
-    // Update mastery
-    for (const [qId, ans] of this.session.answers) {
-      await import('../db/repositories/questions').then(m => m.questionsRepo.updateMastery(qId, ans.isCorrect));
-    }
+    // Task 8 owns mastery updates; mock answers feed the same repository.
+    await Promise.all(
+      Array.from(session.answers, ([questionId, answer]) =>
+        questionsRepo.updateMastery(questionId, answer.isCorrect))
+    );
+  }
+
+  /** Return from results to a fresh configuration form. */
+  private showConfig(): void {
+    this.stopTimer();
+    this.session = null;
+    this.autoSubmitted = false;
+    if (!this.element) return;
+    this.element.removeAttribute('data-exam-active');
+    this.element.innerHTML = this.getConfigHTML();
+    this.bindConfigEvents();
   }
 
   destroy(): void {
@@ -751,5 +921,7 @@ export class MockExamView {
     this.exitFullscreen();
     this.element?.removeAttribute('data-exam-active');
     document.removeEventListener('keydown', this.handleKeys);
+    if (this.routeHandler) eventBus.off('route:changed', this.routeHandler);
+    this.routeHandler = null;
   }
 }
