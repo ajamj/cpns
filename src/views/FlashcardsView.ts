@@ -1,193 +1,284 @@
-// Flashcards View (SM-2 Spaced Repetition)
+// Flashcards View — SM-2 spaced-repetition study session.
 import { questionsRepo } from '../db/repositories/questions';
 import { flashcardsRepo } from '../db/repositories/flashcards';
-import { loadKisiKisi } from '../features/kisi-kisi/registry';
-import { navigate, t } from '../core/i18n';
+import { settingsRepo } from '../db/repositories/settings';
+import { t } from '../core/i18n';
 import { eventBus } from '../core/events';
 import { generateId, nowISO, todayISO } from '../core/utils';
+import {
+  DEFAULT_SM2_PARAMS,
+  FlashcardSession,
+  reviewCard,
+  type SM2Rating,
+} from '../features/flashcards/sm2';
 import type { Flashcard, SM2Params } from '../shared/types';
-import { DEFAULT_SM2_PARAMS, reviewCard } from '../features/flashcards/sm2';
 
-const SM2_DEFAULTS: SM2Params = DEFAULT_SM2_PARAMS;
+type FlashcardStats = {
+  due: number;
+  new: number;
+  learning: number;
+  review: number;
+  mature: number;
+};
+
+const EMPTY_STATS: FlashcardStats = { due: 0, new: 0, learning: 0, review: 0, mature: 0 };
+const DEFAULT_DAILY_LIMIT = 50;
+
+/**
+ * The four visible choices map onto the engine's 0-5 quality scale:
+ * Again is a lapse (1), Hard is a penalised but successful recall (3),
+ * Good is a standard recall (4) and Easy grants the ease bonus (5).
+ * `data-quality` keeps the historic 0-3 button index; `data-rating` exposes
+ * the SM-2 quality actually applied.
+ */
+const RATING_BY_BUTTON: readonly SM2Rating[] = [1, 3, 4, 5];
+
+const RATING_BUTTONS = [
+  {
+    id: 'btnAgain',
+    quality: 0,
+    rating: 1,
+    label: 'flash.rateAgain',
+    tone: 'btn-danger',
+    icon: '<path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-5"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/>',
+  },
+  {
+    id: 'btnHard',
+    quality: 1,
+    rating: 3,
+    label: 'flash.rateHard',
+    tone: 'btn-warning',
+    icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  },
+  {
+    id: 'btnGood',
+    quality: 2,
+    rating: 4,
+    label: 'flash.rateGood',
+    tone: 'btn-primary',
+    icon: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  },
+  {
+    id: 'btnEasy',
+    quality: 3,
+    rating: 5,
+    label: 'flash.rateEasy',
+    tone: 'btn-success',
+    icon: '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+  },
+] as const;
+
+function sm2RatingForButton(quality: number): SM2Rating {
+  if (!Number.isInteger(quality) || quality < 0 || quality >= RATING_BY_BUTTON.length) {
+    return 4;
+  }
+  return RATING_BY_BUTTON[quality] ?? 4;
+}
+
+function escapeHTML(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      default: return '&#39;';
+    }
+  });
+}
 
 export class FlashcardsView {
   private params: Record<string, string>;
   private element: HTMLElement | null = null;
-  private currentCard: Flashcard | null = null;
-  private showAnswer = false;
-  private sessionCards: Flashcard[] = [];
-  private currentIndex = 0;
-  private stats = { due: 0, new: 0, learning: 0, review: 0, mature: 0 };
-  private params_s: SM2Params = SM2_DEFAULTS;
+  private session = new FlashcardSession([], { params: DEFAULT_SM2_PARAMS });
+  private sm2Params: SM2Params = DEFAULT_SM2_PARAMS;
+  private stats: FlashcardStats = EMPTY_STATS;
+  private isRating = false;
+  private disposed = false;
+  private routeHandler: ((route: { view: string }) => void) | null = null;
 
   constructor(params: Record<string, string>) {
     this.params = params;
+    // The app does not call destroy() on navigation; release the global key
+    // handler when the router leaves flashcards (same pattern as practice).
+    this.routeHandler = route => {
+      if (route.view !== 'flashcards') this.destroy();
+    };
+    eventBus.on('route:changed', this.routeHandler);
   }
 
   render(): HTMLElement {
     this.element = document.createElement('div');
     this.element.className = 'flashcards-view';
-    this.element.innerHTML = this.getSkeletonHTML();
-    
-    this.loadData().then(() => {
-      if (this.element) {
-        this.element.innerHTML = this.getHTML();
-        this.bindEvents();
-        this.loadNextCard();
-      }
-    });
-
+    this.element.innerHTML = this.getShellHTML();
+    this.bindEvents();
+    void this.loadData();
     return this.element;
   }
 
+  destroy(): void {
+    this.disposed = true;
+    document.removeEventListener('keydown', this.handleKeys);
+    if (this.routeHandler) eventBus.off('route:changed', this.routeHandler);
+    this.routeHandler = null;
+  }
+
   private async loadData(): Promise<void> {
-    const settings = await import('../db/repositories/settings').then(m => m.settingsRepo.getAllWithDefaults());
-    this.params_s = settings.flashcardParams || SM2_DEFAULTS;
-    
-    this.sessionCards = await flashcardsRepo.getDueCards(this.params_s.dailyLimit || 50);
-    this.stats = await flashcardsRepo.getStats();
-  }
+    try {
+      const settings = await settingsRepo.getAllWithDefaults();
+      const params = settings.flashcardParams ?? DEFAULT_SM2_PARAMS;
+      // getDueCards() filters dueDate <= today and sorts oldest first.
+      const [cards, stats] = await Promise.all([
+        flashcardsRepo.getDueCards(params.dailyLimit ?? DEFAULT_DAILY_LIMIT),
+        flashcardsRepo.getStats(),
+      ]);
+      if (this.disposed || !this.element) return;
 
-  private getSkeletonHTML(): string {
-    return `
-      <div class="page-header">
-        <h1 class="page-title">${t('flash.title')}</h1>
-      </div>
-      <div class="card skeleton" style="min-height:400px;"></div>
-    `;
-  }
-
-  private getHTML(): string {
-    return `
-      <div class="page-header">
-        <h1 class="page-title">${t('flash.title')}</h1>
-        <p class="page-subtitle">${t('flash.shortcuts')}</p>
-      </div>
-
-      <!-- Stats Bar -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-3);margin-bottom:var(--space-4);">
-        <div class="card">
-          <div class="card-content" style="text-align:center;padding:var(--space-4);">
-            <div style="font-size:var(--text-2xl);font-weight:var(--font-bold);color:var(--color-primary);">${this.stats.due}</div>
-            <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${t('flash.dueToday')}</div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-content" style="text-align:center;padding:var(--space-4);">
-            <div style="font-size:var(--text-2xl);font-weight:var(--font-bold);color:var(--color-info);">${this.stats.new}</div>
-            <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${t('flash.newCards')}</div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-content" style="text-align:center;padding:var(--space-4);">
-            <div style="font-size:var(--text-2xl);font-weight:var(--font-bold);color:var(--color-warning);">${this.stats.learning}</div>
-            <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${t('flash.learning')}</div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-content" style="text-align:center;padding:var(--space-4);">
-            <div style="font-size:var(--text-2xl);font-weight:var(--font-bold);color:var(--color-success);">${this.stats.review + this.stats.mature}</div>
-            <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${t('flash.review')} / ${t('flash.mature')}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card Container -->
-      <div id="cardContainer">
-        ${this.getEmptyStateHTML()}
-      </div>
-
-      <!-- Controls -->
-      <div id="cardControls" style="display:none;margin-top:var(--space-6);">
-        <div style="display:flex;gap:var(--space-3);justify-content:center;flex-wrap:wrap;">
-          <button class="btn btn-danger btn-lg" id="btnAgain" data-quality="0">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-5"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
-            <span>${t('flash.rateAgain')}</span>
-            <kbd>1</kbd>
-          </button>
-          <button class="btn btn-warning btn-lg" id="btnHard" data-quality="1">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <span>${t('flash.rateHard')}</span>
-            <kbd>2</kbd>
-          </button>
-          <button class="btn btn-primary btn-lg" id="btnGood" data-quality="2">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            <span>${t('flash.rateGood')}</span>
-            <kbd>3</kbd>
-          </button>
-          <button class="btn btn-success btn-lg" id="btnEasy" data-quality="3">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-7-7 7-7-7-7 7"/><path d="M2 19l7-7 7 7"/></svg>
-            <span>${t('flash.rateEasy')}</span>
-            <kbd>4</kbd>
-          </button>
-        </div>
-        <div style="text-align:center;margin-top:var(--space-3);color:var(--color-text-muted);font-size:var(--text-xs);">
-          ${t('flash.shortcuts')}
-        </div>
-      </div>
-
-      <!-- Actions -->
-      <div style="display:flex;gap:var(--space-3);justify-content:center;margin-top:var(--space-6);flex-wrap:wrap;">
-        <a href="#/flashcards?new=true" class="btn btn-secondary">${t('flash.createFromQuestion')}</a>
-        <a href="#/settings" class="btn btn-secondary">${t('settings.flashcardParams')}</a>
-        <button class="btn btn-secondary" id="btnCreateManual">${t('flash.createManual')}</button>
-      </div>
-    `;
-  }
-
-  private getEmptyStateHTML(): string {
-    if (this.sessionCards.length === 0) {
-      return `
-        <div class="card" style="max-width:600px;margin:0 auto;">
-          <div class="card-content" style="text-align:center;padding:var(--space-12);">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64" style="margin-bottom:var(--space-4);opacity:0.5;">
-              <rect x="2" y="4" width="20" height="16" rx="2"/>
-              <path d="M6 8h12M6 12h12M6 16h8"/>
-            </svg>
-            <h2 style="font-size:var(--text-xl);font-weight:var(--font-semibold);margin-bottom:var(--space-2);">${t('flash.dueToday')}: 0</h2>
-            <p style="color:var(--color-text-muted);margin-bottom:var(--space-6);">Tidak ada kartu yang jatuh tempo hari ini. Semua tertib!</p>
-            <div style="display:flex;gap:var(--space-3);justify-content:center;flex-wrap:wrap;">
-              <button class="btn btn-primary" id="btnCreateFromQuestions">${t('flash.createFromQuestion')}</button>
-              <button class="btn btn-secondary" id="btnCreateManualEmpty">${t('flash.createManual')}</button>
-              <a href="#/settings" class="btn btn-secondary">${t('settings.flashcardParams')}</a>
-            </div>
-          </div>
-        </div>
-      `;
+      this.sm2Params = params;
+      this.stats = stats;
+      this.session = new FlashcardSession(cards, { params: this.sm2Params });
+      this.element.innerHTML = this.getShellHTML();
+      this.bindEvents();
+      this.syncCardFace();
+    } catch (error) {
+      console.error('Failed to load flashcards session', error);
+      if (!this.disposed && this.element) {
+        const container = this.element.querySelector('#cardContainer');
+        if (container) {
+          container.innerHTML = `<div class="card"><div class="card-content">${escapeHTML(t('common.error'))}</div></div>`;
+        }
+      }
     }
-    return this.getCardHTML();
   }
 
-  private getCardHTML(): string {
-    if (!this.currentCard) return '';
-    const card = this.currentCard;
-    const progress = this.sessionCards.length > 0 ? ((this.currentIndex + 1) / this.sessionCards.length) * 100 : 0;
+  private getShellHTML(): string {
+    const buttons = RATING_BUTTONS.map(button => `
+      <button type="button" class="btn btn-lg ${button.tone} flashcard-rating"
+              id="${button.id}" data-quality="${button.quality}" data-rating="${button.rating}">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${button.icon}</svg>
+        <span>${escapeHTML(t(button.label))}</span>
+        <kbd>${button.quality + 1}</kbd>
+      </button>
+    `).join('');
 
     return `
-      <div class="card" style="max-width:700px;margin:0 auto;">
-        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
-          <div style="display:flex;align-items:center;gap:var(--space-3);">
-            <span style="font-size:var(--text-sm);color:var(--color-text-muted);">${this.currentIndex + 1} / ${this.sessionCards.length}</span>
-            <div style="width:100px;height:4px;background:var(--color-border);border-radius:var(--radius-full);overflow:hidden;">
-              <div style="width:${((this.currentIndex + 1) / this.sessionCards.length) * 100}%;height:100%;background:var(--color-primary);transition:width var(--transition-fast);"></div>
+      <div class="page-header">
+        <h1 class="page-title">${escapeHTML(t('flash.title'))}</h1>
+        <p class="page-subtitle">${escapeHTML(t('flash.shortcuts'))}</p>
+      </div>
+
+      <div class="flashcard-stats" id="flashcardStats" role="group" aria-label="${escapeHTML(t('flash.stats'))}">
+        ${this.getStatsHTML()}
+      </div>
+
+      <div id="cardContainer">${this.getBodyHTML()}</div>
+
+      <div class="flashcard-ratings" id="cardControls" role="group"
+           aria-label="${escapeHTML(t('flash.stats'))}" hidden>
+        <div class="flashcard-rating-buttons">${buttons}</div>
+      </div>
+
+      <div class="flashcard-actions">
+        <button type="button" class="btn btn-secondary" id="btnCreateFromQuestions">${escapeHTML(t('flash.createFromQuestion'))}</button>
+        <button type="button" class="btn btn-secondary" id="btnCreateManual">${escapeHTML(t('flash.createManual'))}</button>
+        <a href="#/settings" class="btn btn-secondary">${escapeHTML(t('settings.flashcardParams'))}</a>
+      </div>
+    `;
+  }
+
+  private getStatsHTML(): string {
+    const cells: Array<[keyof FlashcardStats, string, string]> = [
+      ['due', 'flash.dueToday', 'primary'],
+      ['new', 'flash.newCards', 'info'],
+      ['learning', 'flash.learning', 'warning'],
+      ['review', 'flash.review', 'secondary'],
+      ['mature', 'flash.mature', 'success'],
+    ];
+    return cells.map(([key, label, tone]) => `
+      <div class="flashcard-stat flashcard-stat-${tone}" data-stat="${key}">
+        <div class="flashcard-stat-value">${this.stats[key]}</div>
+        <div class="flashcard-stat-label">${escapeHTML(t(label))}</div>
+      </div>
+    `).join('');
+  }
+
+  private getBodyHTML(): string {
+    if (this.session.isComplete && this.session.total > 0) return this.getCompletionHTML();
+    if (!this.session.currentCard) return this.getEmptyHTML();
+    return this.getCardHTML(this.session.currentCard);
+  }
+
+  private getCardHTML(card: Flashcard): string {
+    const current = this.session.currentIndex + 1;
+    const total = this.session.total;
+    const progress = total > 0 ? Math.round((current / total) * 100) : 0;
+    const typeLabel = t(`flash.type.${card.type}`);
+
+    return `
+      <div class="card flashcard-card">
+        <div class="card-header flashcard-card-header">
+          <div class="flashcard-progress-group">
+            <span class="flashcard-progress-text">${escapeHTML(t('flash.progress', { current, total }))}</span>
+            <div class="flashcard-progress-track" role="progressbar" aria-valuemin="0"
+                 aria-valuemax="${total}" aria-valuenow="${current}"
+                 aria-label="${escapeHTML(t('flash.stats'))}">
+              <div class="flashcard-progress-fill" style="--flashcard-progress:${progress}%"></div>
             </div>
           </div>
-          <span class="badge badge-${card.type}">${card.type.toUpperCase()}</span>
+          <span class="badge badge-primary">${escapeHTML(typeLabel === `flash.type.${card.type}` ? card.type : typeLabel)}</span>
         </div>
-        <div class="card-content" style="min-height:200px;display:flex;flex-direction:column;justify-content:center;">
-          <div id="cardInner" role="button" tabindex="0" aria-label="${t('flash.showAnswer')}" style="width:100%;aspect-ratio:4/3;perspective:1000px;cursor:pointer;" onclick="this.querySelector('#flashcardView')?.classList.toggle('flipped')">
-            <div id="flashcardView" class="flashcard-3d" style="width:100%;height:100%;position:relative;transform-style:preserve-3d;transition:transform 0.6s;${this.showAnswer ? 'transform:rotateY(180deg);' : ''}">
-              <!-- Front -->
-              <div class="flashcard-face flashcard-front" style="position:absolute;width:100%;height:100%;backface-visibility:hidden;display:flex;align-items:center;justify-content:center;padding:var(--space-8);background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:var(--radius-lg);">
-                <div style="max-width:100%;text-align:center;font-size:var(--text-xl);line-height:var(--leading-relaxed);font-weight:var(--font-medium);">${card.front}</div>
-                <div style="position:absolute;bottom:var(--space-4);left:50%;transform:translateX(-50%);font-size:var(--text-xs);color:var(--color-text-muted);">${t('flash.showAnswer')}</div>
+        <div class="card-content flashcard-card-body">
+          <div id="cardInner" class="flashcard-flipper" role="button" tabindex="0"
+               aria-pressed="false" aria-label="${escapeHTML(t('flash.showAnswer'))}">
+            <div id="flashcardView" class="flashcard-inner">
+              <div class="flashcard-face flashcard-front" aria-hidden="false">
+                <span class="flashcard-face-label">${escapeHTML(t('flash.front'))}</span>
+                <div class="flashcard-text">${escapeHTML(card.front)}</div>
+                <span class="flashcard-flip-hint">${escapeHTML(t('flash.showAnswer'))}</span>
               </div>
-              <!-- Back -->
-              <div class="flashcard-face flashcard-back" style="position:absolute;width:100%;height:100%;backface-visibility:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--space-8);background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:var(--radius-lg);transform:rotateY(180deg);">
-                <div style="max-width:100%;text-align:center;font-size:var(--text-lg);line-height:var(--leading-relaxed);">${card.back}</div>
-                <div style="margin-top:var(--space-4);font-size:var(--text-xs);color:var(--color-text-muted);">${card.type === 'qa' ? 'Q&A' : card.type === 'cloze' ? 'Cloze' : 'Konsep'}${card.questionId ? ' • Terkait soal' : ''}</div>
+              <div class="flashcard-face flashcard-back" aria-hidden="true">
+                <span class="flashcard-face-label">${escapeHTML(t('flash.back'))}</span>
+                <div class="flashcard-text">${escapeHTML(card.back)}</div>
+                ${card.questionId ? `<span class="flashcard-flip-hint">${escapeHTML(t('flash.relatedQuestion'))}</span>` : ''}
               </div>
             </div>
+          </div>
+        </div>
+        <div class="card-footer flashcard-card-footer">
+          <span id="flashcardHint">${escapeHTML(t('flash.showAnswer'))}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  private getEmptyHTML(): string {
+    return `
+      <div class="card flashcard-empty" id="flashcardEmpty">
+        <div class="card-content">
+          <svg class="flashcard-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h12M6 12h12M6 16h8"/></svg>
+          <h2 class="flashcard-state-title">${escapeHTML(t('flash.noDueCards'))}</h2>
+          <p class="flashcard-state-desc">${escapeHTML(t('flash.noDueCardsDesc'))}</p>
+          <div class="flashcard-state-actions">
+            <button type="button" class="btn btn-primary" id="btnCreateFromQuestionsEmpty">${escapeHTML(t('flash.createFromQuestion'))}</button>
+            <button type="button" class="btn btn-secondary" id="btnCreateManualEmpty">${escapeHTML(t('flash.createManual'))}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private getCompletionHTML(): string {
+    return `
+      <div class="card flashcard-complete" id="flashcardComplete">
+        <div class="card-content">
+          <svg class="flashcard-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>
+          <h2 class="flashcard-state-title">${escapeHTML(t('flash.sessionComplete'))}</h2>
+          <p class="flashcard-state-desc">${escapeHTML(t('flash.sessionCompleteDesc', { count: this.session.reviewed }))}</p>
+          <div class="flashcard-state-actions">
+            <button type="button" class="btn btn-primary" id="btnRestart">${escapeHTML(t('flash.restart'))}</button>
           </div>
         </div>
       </div>
@@ -195,134 +286,184 @@ export class FlashcardsView {
   }
 
   private bindEvents(): void {
-    if (!this.element) return;
+    const root = this.element;
+    if (!root) return;
 
-    // Card click / keyboard activation to flip
-    const flipCard = () => {
-      this.showAnswer = !this.showAnswer;
-      this.refreshCard();
-    };
-    this.element.querySelector('#cardInner')?.addEventListener('click', flipCard);
-    this.element.querySelector<HTMLElement>('#cardInner')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        flipCard();
+    root.querySelector('#cardInner')?.addEventListener('click', () => this.toggleFlip());
+    root.querySelector<HTMLElement>('#cardInner')?.addEventListener('keydown', event => {
+      if (event.key === ' ' || event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.toggleFlip();
       }
     });
 
-    // Rating buttons
-    this.element.querySelectorAll('[data-quality]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const quality = parseInt((e.currentTarget as HTMLButtonElement).dataset.quality!);
-        this.rateCard(quality);
-      });
+    root.querySelector('#cardControls')?.addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-quality]');
+      if (!button || button.disabled) return;
+      void this.rateCard(sm2RatingForButton(Number(button.dataset.quality)));
     });
 
-    // Keyboard shortcuts
+    root.addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+      if (!button) return;
+      switch (button.id) {
+        case 'btnRestart':
+          void this.loadData();
+          break;
+        case 'btnCreateFromQuestions':
+        case 'btnCreateFromQuestionsEmpty':
+          void this.createFromQuestions();
+          break;
+        case 'btnCreateManual':
+        case 'btnCreateManualEmpty':
+          void this.createManual();
+          break;
+        default:
+          break;
+      }
+    });
+
     document.addEventListener('keydown', this.handleKeys);
-
-    // Create buttons
-    this.element.querySelector('#btnCreateFromQuestions')?.addEventListener('click', () => this.createFromQuestions());
-    this.element.querySelector('#btnCreateManualEmpty')?.addEventListener('click', () => this.createManual());
-    this.element.querySelector('#btnCreateManualEmpty')?.addEventListener('click', () => this.createManual());
   }
 
-  private refreshCard(): void {
+  private toggleFlip(): void {
+    if (!this.session.currentCard) return;
+    this.session.toggleAnswer();
+    this.syncCardFace();
+  }
+
+  /** Update the face, ARIA state and rating visibility without re-rendering. */
+  private syncCardFace(): void {
+    const flipper = this.element?.querySelector<HTMLElement>('#cardInner');
+    const inner = this.element?.querySelector<HTMLElement>('#flashcardView');
+    const front = this.element?.querySelector<HTMLElement>('.flashcard-front');
+    const back = this.element?.querySelector<HTMLElement>('.flashcard-back');
+    const hint = this.element?.querySelector<HTMLElement>('#flashcardHint');
+    const shown = this.session.showAnswer;
+
+    flipper?.classList.toggle('is-flipped', shown);
+    inner?.classList.toggle('flipped', shown);
+    flipper?.setAttribute('aria-pressed', String(shown));
+    flipper?.setAttribute('aria-label', t(shown ? 'flash.hideAnswer' : 'flash.showAnswer'));
+    front?.setAttribute('aria-hidden', String(shown));
+    back?.setAttribute('aria-hidden', String(!shown));
+    if (hint) hint.textContent = t(shown ? 'flash.hideAnswer' : 'flash.showAnswer');
+    this.syncRatingControls();
+  }
+
+  private syncRatingControls(): void {
+    const controls = this.element?.querySelector<HTMLElement>('#cardControls');
+    if (!controls) return;
+    controls.hidden = !this.session.showAnswer || !this.session.currentCard;
+    controls.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach(button => {
+      button.disabled = this.isRating;
+    });
+  }
+
+  private renderBody(): void {
     const container = this.element?.querySelector('#cardContainer');
-    if (container) container.innerHTML = this.getEmptyStateHTML();
-    
-    const controls = this.element?.querySelector('#cardControls');
-    if (controls) {
-      (controls as HTMLElement).style.display = this.currentCard ? 'block' : 'none';
+    if (container) container.innerHTML = this.getBodyHTML();
+    this.syncCardFace();
+  }
+
+  private renderStats(): void {
+    const stats = this.element?.querySelector('#flashcardStats');
+    if (stats) stats.innerHTML = this.getStatsHTML();
+  }
+
+  private async rateCard(rating: SM2Rating): Promise<void> {
+    const card = this.session.currentCard;
+    // Ratings are only meaningful once the answer has been revealed.
+    if (!card || !this.session.showAnswer || this.isRating) return;
+
+    this.isRating = true;
+    this.syncRatingControls();
+    try {
+      const updated = reviewCard(card, rating, { params: this.sm2Params });
+      await flashcardsRepo.put(updated);
+      if (this.disposed || !this.element) return;
+
+      // Advance the in-memory queue only after the schedule is persisted.
+      this.session.rate(rating);
+      this.stats = await flashcardsRepo.getStats();
+      if (this.disposed || !this.element) return;
+      this.renderStats();
+      this.renderBody();
+    } catch (error) {
+      console.error('Failed to rate flashcard', error);
+    } finally {
+      this.isRating = false;
+      this.syncRatingControls();
     }
   }
 
-  private loadNextCard(): void {
-    if (this.currentIndex >= this.sessionCards.length) {
-      this.currentCard = null;
-      this.showAnswer = false;
-    } else {
-      this.currentCard = this.sessionCards[this.currentIndex];
-      this.showAnswer = false;
+  private handleKeys = (event: KeyboardEvent): void => {
+    if (this.disposed || !this.session.currentCard || !this.element?.isConnected) return;
+    const target = event.target;
+    if (target instanceof HTMLElement) {
+      if (target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
+      // The flipper handles its own Space/Enter activation.
+      if (target.closest('#cardInner')) return;
     }
-    this.refreshCard();
-  }
 
-  private async rateCard(quality: 0 | 1 | 2 | 3): Promise<void> {
-    if (!this.currentCard) return;
-
-    const updated = reviewCard(this.currentCard, quality, { params: this.params_s });
-    Object.assign(this.currentCard, updated);
-    await flashcardsRepo.put(this.currentCard);
-
-    this.currentIndex++;
-    this.loadNextCard();
-    this.refreshCard();
-  }
-
-  private handleKeys = (e: KeyboardEvent): void => {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-    // The card handles its own Enter/Space activation when focused.
-    if (e.target instanceof HTMLElement && e.target.id === 'cardInner') return;
-    if (!this.currentCard) return;
-
-    if (e.key === ' ' || e.key === 'Enter') {
-      e.preventDefault();
-      this.showAnswer = !this.showAnswer;
-      this.refreshCard();
-    } else if (e.key >= '1' && e.key <= '4') {
-      this.rateCard(parseInt(e.key) - 1);
+    if (event.key === ' ' || event.key === 'Enter') {
+      event.preventDefault();
+      this.toggleFlip();
+    } else if (/^[1-4]$/.test(event.key)) {
+      if (!this.session.showAnswer || this.isRating) return;
+      event.preventDefault();
+      void this.rateCard(sm2RatingForButton(Number(event.key) - 1));
     }
   };
 
   private async createFromQuestions(): Promise<void> {
-    // Get flagged questions
-    const questions = await import('../db/repositories/questions').then(m => m.questionsRepo.getAll());
+    const questions = await questionsRepo.getAll();
     const flagged = questions.filter(q => q.flags.needsReview || q.flags.bookmarked);
-    
+
     if (flagged.length === 0) {
-      alert('Tidak ada soal yang diflag untuk dijadikan flashcard.');
+      alert(t('flash.createFromFlaggedMissing'));
       return;
     }
 
     let created = 0;
-    for (const q of flagged) {
-      const existing = await flashcardsRepo.getByQuestion(q.id);
-      if (existing.length === 0) {
-        const card: Flashcard = {
-          id: generateId(),
-          questionId: q.id,
-          front: q.stem,
-          back: `${q.options[q.correctAnswer[0]]?.text || ''}\n\n${q.explanation || ''}`,
-          type: 'qa',
-          dueDate: todayISO(),
-          interval: 0,
-          easeFactor: this.params_s.minEaseFactor || 2.5,
-          reps: 0,
-          lapses: 0,
-          createdAt: nowISO(),
-          updatedAt: nowISO(),
-        };
-        await flashcardsRepo.add(card);
-        created++;
-      }
+    for (const question of flagged) {
+      const existing = await flashcardsRepo.getByQuestion(question.id);
+      if (existing.length > 0) continue;
+      const timestamp = nowISO();
+      const card: Flashcard = {
+        id: generateId(),
+        questionId: question.id,
+        front: question.stem,
+        back: `${question.options[question.correctAnswer[0] ?? 0]?.text ?? ''}\n\n${question.explanation ?? ''}`,
+        type: 'qa',
+        dueDate: todayISO(),
+        interval: 0,
+        easeFactor: this.sm2Params.minEaseFactor,
+        reps: 0,
+        lapses: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      await flashcardsRepo.add(card);
+      created++;
     }
 
-    if (created > 0) {
-      alert(`Berhasil membuat ${created} flashcard dari soal yang diflag.`);
-      await this.loadData();
-      this.refreshCard();
-    } else {
-      alert('Semua soal diflag sudah memiliki flashcard.');
-    }
+    alert(
+      created > 0
+        ? t('flash.createFromFlaggedDone', { count: created })
+        : t('flash.allFlaggedHaveCards'),
+    );
+    if (created > 0) await this.loadData();
   }
 
   private async createManual(): Promise<void> {
-    const front = prompt('Masukkan pertanyaan (Front):');
+    const front = prompt(t('flash.createManualFrontPrompt'));
     if (!front) return;
-    const back = prompt('Masukkan jawaban (Back):');
+    const back = prompt(t('flash.createManualBackPrompt'));
     if (!back) return;
 
+    const timestamp = nowISO();
     const card: Flashcard = {
       id: generateId(),
       front,
@@ -330,14 +471,13 @@ export class FlashcardsView {
       type: 'qa',
       dueDate: todayISO(),
       interval: 0,
-      easeFactor: this.params_s.minEaseFactor || 2.5,
+      easeFactor: this.sm2Params.minEaseFactor,
       reps: 0,
       lapses: 0,
-      createdAt: nowISO(),
-      updatedAt: nowISO(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
     await flashcardsRepo.add(card);
     await this.loadData();
-    this.refreshCard();
   }
 }
