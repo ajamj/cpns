@@ -12,9 +12,160 @@ import type {
 } from '../../shared/types';
 import { eventBus, emitQuestionCreated, emitQuestionUpdated, emitQuestionDeleted, emitMasteryUpdated } from '../../core/events';
 import { generateId, nowISO } from '../../core/utils';
+import { APP_CONFIG } from '../../core/config';
 import { stemSimilarity, SMART_SIMILARITY_THRESHOLD, type MergeStrategy } from '../../features/import-export/merge';
 
 const MAX_VERSION_SNAPSHOTS = 5;
+const MOCK_DIFFICULTIES: Difficulty[] = [1, 2, 3];
+
+/** Configuration accepted by the mock-exam question selector. */
+export interface MockExamSelectionConfig {
+  questionCount: number;
+  /** Empty/omitted means every available topic is eligible. */
+  topicCodes?: TopicCode[];
+  difficultyMix: Partial<Record<Difficulty, number>>;
+  /** Per-topic relative weight; topics without a value fall back to UM=1 / KH=1.5. */
+  topicWeights?: Record<string, number>;
+  /** Injectable for deterministic tests. */
+  random?: () => number;
+}
+
+function defaultMockTopicWeight(code: string): number {
+  return (APP_CONFIG.defaultTopicWeights as Record<string, number>)[code] ??
+    (code.startsWith('KH-') ? 1.5 : 1);
+}
+
+/** Fisher-Yates shuffle (the `sort(() => Math.random() - 0.5)` idiom is biased). */
+function shuffle<T>(items: readonly T[], random: () => number): T[] {
+  const result = items.slice();
+  for (let index = result.length - 1; index > 0; index--) {
+    const other = Math.min(index, Math.max(0, Math.floor(random() * (index + 1))));
+    const current = result[index]!;
+    result[index] = result[other]!;
+    result[other] = current;
+  }
+  return result;
+}
+
+/**
+ * Largest-remainder apportionment with capacity limits. Buckets receive their
+ * proportional share; any shortfall is redistributed to buckets with spare
+ * capacity so the requested total is met whenever the pool allows it.
+ */
+function allocateTargets(weights: number[], capacities: number[], total: number): number[] {
+  const capacityTotal = capacities.reduce((sum, capacity) => sum + capacity, 0);
+  const target = Math.max(0, Math.min(Math.floor(total), capacityTotal));
+  if (target === 0 || weights.length === 0) return capacities.map(() => 0);
+
+  const weightTotal = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  const ideal = weights.map(weight =>
+    weightTotal > 0 ? (target * Math.max(0, weight)) / weightTotal : target / weights.length
+  );
+  const counts = ideal.map((share, index) => Math.min(Math.floor(share), capacities[index]!));
+
+  let remaining = target - counts.reduce((sum, count) => sum + count, 0);
+  while (remaining > 0) {
+    let bestIndex = -1;
+    let bestDeficit = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < weights.length; index++) {
+      if (counts[index]! >= capacities[index]!) continue;
+      const deficit = ideal[index]! - counts[index]!;
+      if (deficit > bestDeficit) {
+        bestDeficit = deficit;
+        bestIndex = index;
+      }
+    }
+    if (bestIndex < 0) break;
+    counts[bestIndex]!++;
+    remaining--;
+  }
+  return counts;
+}
+
+/**
+ * Pure mock-exam selector: allocate questions across topics by relative
+ * weight, split each topic by difficulty mix, shuffle every bucket, and
+ * return a unique, globally shuffled set of questions.
+ */
+export function selectWeightedQuestions(pool: Question[], config: MockExamSelectionConfig): Question[] {
+  const random = config.random ?? Math.random;
+  const allowedTopics = config.topicCodes?.length
+    ? new Set(config.topicCodes.map(String))
+    : null;
+
+  // Deduplicate by id even if a malformed import contains repeated rows.
+  const seenIds = new Set<string>();
+  const eligible: Question[] = [];
+  for (const question of pool) {
+    if (question.deletedAt) continue;
+    if (!Array.isArray(question.options) || question.options.length === 0) continue;
+    if (!Array.isArray(question.correctAnswer) || question.correctAnswer.length === 0) continue;
+    if (allowedTopics && !allowedTopics.has(String(question.topicCode))) continue;
+    if (seenIds.has(question.id)) continue;
+    seenIds.add(question.id);
+    eligible.push(question);
+  }
+
+  const byTopic = new Map<string, Question[]>();
+  for (const question of eligible) {
+    const code = String(question.topicCode);
+    const bucket = byTopic.get(code);
+    if (bucket) bucket.push(question);
+    else byTopic.set(code, [question]);
+  }
+
+  const topicCodes = [...byTopic.keys()].filter(code =>
+    (config.topicWeights?.[code] ?? defaultMockTopicWeight(code)) > 0
+  );
+  const topicTargets = allocateTargets(
+    topicCodes.map(code => config.topicWeights?.[code] ?? defaultMockTopicWeight(code)),
+    topicCodes.map(code => byTopic.get(code)!.length),
+    config.questionCount
+  );
+
+  const selected: Question[] = [];
+  const leftovers: Question[] = [];
+  topicCodes.forEach((code, topicIndex) => {
+    const byDifficulty = new Map<Difficulty, Question[]>(MOCK_DIFFICULTIES.map(d => [d, []]));
+    for (const question of byTopic.get(code)!) {
+      const difficulty = MOCK_DIFFICULTIES.includes(question.difficulty) ? question.difficulty : 2;
+      byDifficulty.get(difficulty)!.push(question);
+    }
+
+    const shuffledBuckets = MOCK_DIFFICULTIES.map(difficulty =>
+      shuffle(byDifficulty.get(difficulty)!, random)
+    );
+    const difficultyTargets = allocateTargets(
+      MOCK_DIFFICULTIES.map(d => Math.max(0, Number(config.difficultyMix?.[d] ?? 0))),
+      shuffledBuckets.map(bucket => bucket.length),
+      topicTargets[topicIndex]!
+    );
+    shuffledBuckets.forEach((bucket, difficultyIndex) => {
+      selected.push(...bucket.slice(0, difficultyTargets[difficultyIndex]!));
+      leftovers.push(...bucket.slice(difficultyTargets[difficultyIndex]!));
+    });
+  });
+
+  // Defensive top-up: allocation already targets the requested count, but a
+  // future selector change must never return fewer questions when spare rows
+  // exist. Shuffled leftovers keep the draw random.
+  const selectedIds = new Set(selected.map(question => question.id));
+  for (const question of shuffle(leftovers, random)) {
+    if (selected.length >= Math.max(0, Math.floor(config.questionCount))) break;
+    if (selectedIds.has(question.id)) continue;
+    selectedIds.add(question.id);
+    selected.push(question);
+  }
+
+  const result: Question[] = [];
+  const resultIds = new Set<string>();
+  for (const question of shuffle(selected, random)) {
+    if (resultIds.has(question.id)) continue;
+    resultIds.add(question.id);
+    result.push(question);
+  }
+  return result;
+}
 
 // Helper: filter out soft-deleted questions (deletedAt is undefined or null)
 function isNotDeleted(q: Question): boolean {
@@ -241,6 +392,11 @@ export const questionsRepo = {
     return uniqueIds
       .map(id => byId.get(id))
       .filter((q): q is Question => q !== undefined && isNotDeleted(q));
+  },
+
+  /** Weighted, difficulty-balanced mock-exam draw from the live question bank. */
+  async selectForMockExam(config: MockExamSelectionConfig): Promise<Question[]> {
+    return selectWeightedQuestions(await this.getAll(), config);
   },
 
   async search(query: string): Promise<Question[]> {

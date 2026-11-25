@@ -1,16 +1,29 @@
 // Mock Exam View (CAT Simulation)
-import { questionsRepo } from '../db/repositories/questions';
-import { sessionsRepo } from '../db/repositories/sessions';
-import { attemptsRepo } from '../db/repositories/attempts';
-import { getSubdomainColor, loadKisiKisi } from '../features/kisi-kisi/registry';
+import { questionsRepo, type MockExamSelectionConfig } from '../db/repositories/questions';
+import {
+  getSubdomainColor,
+  loadKisiKisi,
+  getKisiKisiSync,
+  getDefaultWeightsSync,
+  getTopicWeight,
+} from '../features/kisi-kisi/registry';
 import { navigate, t } from '../core/i18n';
-import { eventBus } from '../core/events';
-import { generateId, nowISO, formatTime, debounce } from '../core/utils';
-import type { Question, Session, SessionConfig } from '../shared/types';
+import { generateId, nowISO, formatTime } from '../core/utils';
+import { APP_CONFIG } from '../core/config';
+import type { Difficulty, Question, TopicCode } from '../shared/types';
+
+/** Exam form values; topicWeights is keyed by the topic codes shown in the form. */
+interface MockExamConfig {
+  durationMinutes: number;
+  questionCount: number;
+  topicCodes: TopicCode[];
+  topicWeights: Record<TopicCode, number>;
+  difficultyMix: Record<Difficulty, number>;
+}
 
 interface MockExamSession {
   id: string;
-  config: SessionConfig;
+  config: MockExamConfig;
   questions: Question[];
   currentIndex: number;
   answers: Map<string, { userAnswer: number[]; isCorrect: boolean; timeMs: number; flagged: boolean; markedReview: boolean }>;
@@ -22,18 +35,35 @@ interface MockExamSession {
   status: 'config' | 'ready' | 'active' | 'paused' | 'confirming' | 'review';
 }
 
+const DEFAULT_DIFFICULTY_MIX: Record<Difficulty, number> = { 1: 30, 2: 50, 3: 20 };
+
+function escapeHTML(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      default: return '&#39;';
+    }
+  });
+}
+
 export class MockExamView {
   private params: Record<string, string>;
   private element: HTMLElement | null = null;
   private session: MockExamSession | null = null;
   private questionStartTime = 0;
-  private allQuestions: any[] = [];
+  private allQuestions: Question[] = [];
 
   constructor(params: Record<string, string>) {
     this.params = params;
   }
 
   async loadQuestions(): Promise<void> {
+    // Topic labels/weights come from the kisi-kisi registry; load it before
+    // rendering the form so the weight inputs are populated synchronously.
+    await loadKisiKisi();
     this.allQuestions = await questionsRepo.getAll();
   }
 
@@ -67,18 +97,16 @@ export class MockExamView {
   }
 
   private getConfigHTML(): string {
-    const defaults = {
-      durationMinutes: 90,
-      questionCount: 60,
-      topicWeights: {
-        'UM-01': 1, 'UM-02': 1, 'UM-03': 1, 'UM-04': 1, 'UM-05': 1,
-        'UM-06': 1, 'UM-07': 1, 'UM-08': 1, 'UM-09': 1,
-        'KH-01': 1.5, 'KH-02': 1.5, 'KH-03': 1.5, 'KH-04': 1.5,
-        'KH-05': 1.5, 'KH-06': 1.5, 'KH-07': 1.5, 'KH-08': 1.5,
-        'KH-09': 1.5, 'KH-10': 1.5, 'KH-11': 1.5, 'KH-12': 1.5,
-      },
-      difficultyMix: { 1: 30, 2: 50, 3: 20 },
-    };
+    const registered = getKisiKisiSync();
+    const topics = registered.length > 0
+      ? registered.map(topic => ({ code: topic.code, title: topic.title }))
+      : [...new Set(this.allQuestions.map(question => String(question.topicCode)))]
+        .map(code => ({ code, title: '' }));
+    const registryWeights = getDefaultWeightsSync();
+    const weights: Record<string, number> = Object.keys(registryWeights).length > 0
+      ? registryWeights
+      : APP_CONFIG.defaultTopicWeights as Record<string, number>;
+    const difficultyMix: Record<Difficulty, number> = { ...DEFAULT_DIFFICULTY_MIX };
 
     return `
       <div class="page-header">
@@ -90,24 +118,28 @@ export class MockExamView {
         <div class="card-content" style="display:flex;flex-direction:column;gap:var(--space-6);">
           <fieldset>
             <legend class="form-label" style="font-size:var(--text-lg);font-weight:var(--font-semibold);margin-bottom:var(--space-4);">Konfigurasi Ujian</legend>
-            
+
             <div class="form-group">
               <label class="form-label" for="mockDuration">${t('mock.duration')} (menit)</label>
-              <input type="number" id="mockDuration" class="form-input" value="90" min="30" max="180" step="15">
+              <input type="number" id="mockDuration" class="form-input" value="${APP_CONFIG.defaultMockDurationMinutes}"
+                min="${APP_CONFIG.mockMinDurationMinutes}" max="${APP_CONFIG.mockMaxDurationMinutes}" step="15">
             </div>
 
             <div class="form-group">
               <label class="form-label" for="mockQuestionCount">${t('mock.questionCount')}</label>
-              <input type="number" id="mockQuestionCount" class="form-input" value="60" min="10" max="200" step="5">
+              <input type="number" id="mockQuestionCount" class="form-input" value="${APP_CONFIG.defaultMockQuestionCount}"
+                min="${APP_CONFIG.mockMinQuestions}" max="${APP_CONFIG.mockMaxQuestions}" step="5">
             </div>
 
             <div class="form-group">
               <label class="form-label">${t('mock.difficultyMix')}</label>
               <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;">
-                ${[1, 2, 3].map(d => `
+                ${([1, 2, 3] as Difficulty[]).map(difficulty => `
                   <div style="display:flex;align-items:center;gap:var(--space-2);">
-                    <span style="min-width:60px;">${t('difficulty.' + d)}</span>
-                    <input type="number" step="5" min="0" max="100" value="${d===2?50:d===1?30:20}" data-difficulty="${d}" aria-label="${t('mock.difficultyMix')} — ${t('difficulty.' + d)}" class="form-input" style="width:80px;">
+                    <span style="min-width:60px;">${t('difficulty.' + difficulty)}</span>
+                    <input type="number" step="5" min="0" max="100" value="${difficultyMix[difficulty]}"
+                      data-difficulty="${difficulty}" aria-label="${t('mock.difficultyMix')} — ${t('difficulty.' + difficulty)}"
+                      class="form-input" style="width:80px;">
                     <span>%</span>
                   </div>
                 `).join('')}
@@ -117,21 +149,31 @@ export class MockExamView {
 
             <div class="form-group">
               <label class="form-label">${t('settings.topicWeights')}</label>
-              <p class="form-help">Bobot relatif untuk pemilihan soal per topik (default: UM=1.0, KH=1.5)</p>
-              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--space-3);max-height:300px;overflow:auto;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-md);">
-                ${loadKisiKisi().then(({topics}) => topics.map(t => `
-                  <div style="display:flex;align-items:center;gap:var(--space-2);">
-                    <span style="font-size:var(--text-xs);font-weight:var(--font-medium);color:var(--color-text-muted);min-width:60px;">${t.code}</span>
-                    <input type="number" step="0.1" min="0" max="5" value="1" data-weight="${t.code}" class="form-input" style="width:70px;font-size:var(--text-sm);">
-                  </div>
-                `).join(''))}
+              <p class="form-help">Bobot relatif pemilihan soal per topik (default: UM=1.0, KH=1.5). Kosongkan semua topik untuk menggunakan semua topik.</p>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--space-3);max-height:300px;overflow:auto;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-md);">
+                ${topics.map(topic => {
+                  const code = String(topic.code);
+                  return `
+                    <div style="display:flex;align-items:center;gap:var(--space-2);">
+                      <input type="checkbox" data-topic-select="${escapeHTML(code)}" checked class="form-check-input"
+                        aria-label="Sertakan topik ${escapeHTML(code)}">
+                      <span style="font-size:var(--text-xs);font-weight:var(--font-medium);color:var(--color-text-muted);min-width:60px;">${escapeHTML(code)}</span>
+                      <input type="number" step="0.1" min="0" max="5" value="${getTopicWeight(code, weights)}"
+                        data-weight="${escapeHTML(code)}" aria-label="Bobot topik ${escapeHTML(code)}"
+                        class="form-input" style="width:70px;font-size:var(--text-sm);">
+                    </div>
+                  `;
+                }).join('')}
               </div>
+              <p class="form-help" id="mockTopicWeightHelp">Bobot 0 tidak akan diikutsertakan dalam pemilihan soal.</p>
             </div>
+
+            <p class="form-help" id="mockConfigWarning" role="alert" hidden></p>
           </fieldset>
 
           <div style="display:flex;gap:var(--space-3);justify-content:flex-end;">
-            <button class="btn btn-secondary" id="btnCancelConfig">${t('common.cancel')}</button>
-            <button class="btn btn-primary" id="btnStartExam">${t('mock.start')}</button>
+            <button type="button" class="btn btn-secondary" id="btnCancelConfig">${t('common.cancel')}</button>
+            <button type="button" class="btn btn-primary" id="btnStartExam">${t('mock.start')}</button>
           </div>
         </div>
       </div>
@@ -342,48 +384,12 @@ export class MockExamView {
     }).join('');
   }
 
-  private selectQuestions(config: any): any[] {
-    // Proportional selection by topic weights
-    const byTopic: Record<string, any[]> = {};
-    this.allQuestions.forEach(q => {
-      if (!q.deletedAt) {
-        if (!byTopic[q.topicCode]) byTopic[q.topicCode] = [];
-        byTopic[q.topicCode].push(q);
-      }
-    });
-
-    const selected: any[] = [];
-    const totalWeight = Object.values(config.topicWeights || {}).reduce((a: number, b: number) => a + b, 0);
-
-    for (const [topicCode, weight] of Object.entries(config.topicWeights || {})) {
-      if ((weight as number) <= 0) continue;
-      const topicQuestions = byTopic[topicCode] || [];
-      if (topicQuestions.length === 0) continue;
-
-      const target = Math.round(config.questionCount * (weight as number) / totalWeight);
-      const byDiff: Record<number, any[]> = { 1: [], 2: [], 3: [] };
-      topicQuestions.forEach(q => byDiff[q.difficulty].push(q));
-
-      let topicSelected: any[] = [];
-      for (const [diff, pct] of Object.entries(config.difficultyMix || {})) {
-        const diffQuestions = byDiff[parseInt(diff)] || [];
-        const diffTarget = Math.round(target * (pct as number) / 100);
-        topicSelected.push(...diffQuestions.sort(() => Math.random() - 0.5).slice(0, diffTarget));
-      }
-
-      if (topicSelected.length < target) {
-        const remaining = topicQuestions.filter(q => !topicSelected.includes(q));
-        topicSelected.push(...remaining.sort(() => Math.random() - 0.5).slice(0, target - topicSelected.length));
-      }
-
-      selected.push(...topicSelected.slice(0, target));
-    }
-
-    return selected.sort(() => Math.random() - 0.5).slice(0, config.questionCount);
+  private async selectQuestions(config: MockExamSelectionConfig): Promise<Question[]> {
+    return questionsRepo.selectForMockExam(config);
   }
 
-  private startExam(config: any): void {
-    const questions = this.selectQuestions(config);
+  private async startExam(config: MockExamConfig): Promise<void> {
+    const questions = await this.selectQuestions(config);
     if (questions.length === 0) {
       alert('Tidak ada soal yang sesuai konfigurasi. Periksa bobot topik dan kesulitan.');
       return;
@@ -474,20 +480,57 @@ export class MockExamView {
     this.bindExamEvents();
   }
 
-  private getConfigFromForm(): any {
-    // Simplified - would read from form in real implementation
-    return {
-      durationMinutes: 90,
-      questionCount: 60,
-      topicWeights: {
-        'UM-01': 1, 'UM-02': 1, 'UM-03': 1, 'UM-04': 1, 'UM-05': 1,
-        'UM-06': 1, 'UM-07': 1, 'UM-08': 1, 'UM-09': 1,
-        'KH-01': 1.5, 'KH-02': 1.5, 'KH-03': 1.5, 'KH-04': 1.5,
-        'KH-05': 1.5, 'KH-06': 1.5, 'KH-07': 1.5, 'KH-08': 1.5,
-        'KH-09': 1.5, 'KH-10': 1.5, 'KH-11': 1.5, 'KH-12': 1.5,
-      },
-      difficultyMix: { 1: 30, 2: 50, 3: 20 },
+  /** Read the form into a config; returns null (with a visible warning) if invalid. */
+  private getConfigFromForm(): MockExamConfig | null {
+    const warning = this.element?.querySelector<HTMLElement>('#mockConfigWarning');
+    const fail = (message: string): null => {
+      if (warning) {
+        warning.textContent = message;
+        warning.hidden = false;
+      }
+      return null;
     };
+
+    const numberValue = (selector: string, fallback: number): number => {
+      const raw = Number(this.element?.querySelector<HTMLInputElement>(selector)?.value);
+      return Number.isFinite(raw) ? raw : fallback;
+    };
+    const durationMinutes = Math.min(
+      APP_CONFIG.mockMaxDurationMinutes,
+      Math.max(APP_CONFIG.mockMinDurationMinutes, Math.round(numberValue('#mockDuration', APP_CONFIG.defaultMockDurationMinutes)))
+    );
+    const questionCount = Math.min(
+      APP_CONFIG.mockMaxQuestions,
+      Math.max(APP_CONFIG.mockMinQuestions, Math.round(numberValue('#mockQuestionCount', APP_CONFIG.defaultMockQuestionCount)))
+    );
+
+    const difficultyMix: Record<Difficulty, number> = { ...DEFAULT_DIFFICULTY_MIX };
+    this.element?.querySelectorAll<HTMLInputElement>('[data-difficulty]').forEach(input => {
+      const difficulty = Number(input.dataset.difficulty);
+      if (!([1, 2, 3] as Difficulty[]).includes(difficulty as Difficulty)) return;
+      const value = Number(input.value);
+      difficultyMix[difficulty as Difficulty] = Number.isFinite(value) ? Math.max(0, value) : 0;
+    });
+    const mixTotal = (difficultyMix[1] ?? 0) + (difficultyMix[2] ?? 0) + (difficultyMix[3] ?? 0);
+    if (mixTotal !== 100) return fail('Total campuran kesulitan harus 100%.');
+
+    const topicWeights: Record<TopicCode, number> = {};
+    this.element?.querySelectorAll<HTMLInputElement>('[data-weight]').forEach(input => {
+      const code = input.dataset.weight;
+      if (!code) return;
+      const value = Number(input.value);
+      topicWeights[code as TopicCode] = Number.isFinite(value) ? Math.max(0, value) : 1;
+    });
+
+    const topicCodes = Array.from(this.element?.querySelectorAll<HTMLInputElement>('[data-topic-select]') ?? [])
+      .filter(input => input.checked && input.dataset.topicSelect)
+      .map(input => input.dataset.topicSelect as TopicCode);
+    if (topicCodes.length > 0 && !topicCodes.some(code => (topicWeights[code] ?? 0) > 0)) {
+      return fail('Berikan bobot lebih dari 0 pada minimal satu topik yang dipilih.');
+    }
+
+    if (warning) warning.hidden = true;
+    return { durationMinutes, questionCount, topicCodes, topicWeights, difficultyMix };
   }
 
   private async enterFullscreen(): Promise<void> {
@@ -507,7 +550,7 @@ export class MockExamView {
 
     this.element.querySelector('#btnStartExam')?.addEventListener('click', () => {
       const config = this.getConfigFromForm();
-      this.startExam(config);
+      if (config) void this.startExam(config);
     });
 
     this.element.querySelector('#btnCancelConfig')?.addEventListener('click', () => {
