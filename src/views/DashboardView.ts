@@ -1,86 +1,101 @@
-// Dashboard View
+// Dashboard View — at-a-glance readiness, mastery grid, weak areas and streak.
 import { questionsRepo } from '../db/repositories/questions';
 import { sessionsRepo } from '../db/repositories/sessions';
 import { flashcardsRepo } from '../db/repositories/flashcards';
-import { loadKisiKisi, getTopicsByCategory, getSubdomainColor, getMasteryLabel, getMasteryColor, getKisiKisiSync } from '../features/kisi-kisi/registry';
+import {
+  loadKisiKisi,
+  getMasteryLabel,
+  getMasteryColor,
+  getSubdomainColor,
+  getKisiKisiSync,
+} from '../features/kisi-kisi/registry';
+import {
+  calculateReadiness,
+  calculateStreaks,
+  calculateWeakAreas,
+  getMasteryLevel,
+  getMasteryPercent,
+  type MasteryStats,
+  type ReadinessResult,
+  type StreakResult,
+  type WeakArea,
+} from '../features/analytics/metrics';
 import { navigate, t } from '../core/i18n';
-import { eventBus } from '../core/events';
 import { APP_CONFIG } from '../core/config';
-import { formatDuration } from '../core/utils';
+import type { KisiKisiTopic, Session } from '../shared/types';
+
+/** Enough recent sessions to cover several months of streak history. */
+const SESSION_WINDOW = 500;
+
+const READINESS_BAND_CLASSES = ['badge-danger', 'badge-warning', 'badge-success'] as const;
+const READINESS_BAND_COLORS = [
+  'var(--color-danger)',
+  'var(--color-warning)',
+  'var(--color-success)',
+] as const;
 
 interface DashboardData {
   totalQuestions: number;
   questionsByTopic: Record<string, number>;
-  masteryStats: Record<string, { total: number; mastered: number; learning: number; new: number; avgMastery: number }>;
-  recentSessions: any[];
+  topics: KisiKisiTopic[];
+  masteryStats: MasteryStats;
+  recentSessions: Session[];
   flashcardStats: { due: number; new: number; learning: number; review: number; mature: number };
-  weakAreas: Array<{ topicCode: string; mastery: number; weight: number }>;
+  weakAreas: WeakArea[];
+  readiness: ReadinessResult;
+  streaks: StreakResult;
 }
 
 export class DashboardView {
   private params: Record<string, string>;
   private data: DashboardData | null = null;
   private element: HTMLElement | null = null;
-  private weakAreas: Array<{ topicCode: string; mastery: number; weight: number }> = [];
 
   constructor(params: Record<string, string>) {
     this.params = params;
   }
 
   async loadData(): Promise<void> {
-    console.log('DashboardView.loadData: starting');
-    const [totalQuestions, masteryStats, recentSessions, flashcardStats] = await Promise.all([
+    const [totalQuestions, masteryStats, { topics, defaultWeights }, sessions, flashcardStats] = await Promise.all([
       questionsRepo.getTotalCount(),
       questionsRepo.getStatsByTopic(),
-      sessionsRepo.getRecent(5),
+      loadKisiKisi(),
+      sessionsRepo.getRecent(SESSION_WINDOW),
       flashcardsRepo.getStats(),
     ]);
+
     // getStatsByTopic already scans the sparse topic index; deriving the topic
-    // counts from the same result avoids a second 200ms index walk at the
-    // 2000-question stress envelope.
+    // counts from the same result avoids a second index walk at the 1000-question
+    // stress envelope.
     const questionsByTopic = Object.fromEntries(
       Object.entries(masteryStats).map(([topicCode, stats]) => [topicCode, stats.total])
     );
-    console.log('DashboardView.loadData: got data', { totalQuestions, masteryStatsKeys: Object.keys(masteryStats).length, recentSessionsCount: recentSessions.length, flashcardStats });
-
-    const topics = masteryStats;
-    const weights = APP_CONFIG.defaultTopicWeights;
-
-    this.weakAreas = Object.entries(topics)
-      .map(([topicCode, stats]) => ({
-        topicCode,
-        mastery: stats.avgMastery,
-        weight: weights[topicCode] || 1,
-      }))
-      .filter(w => w.mastery < 0.7 && w.weight > 0)
-      .sort((a, b) => (a.mastery / a.weight) - (b.mastery / b.weight))
-      .slice(0, 5);
+    const resolvedTopics = topics.length > 0 ? topics : getKisiKisiSync();
+    const weights = { ...APP_CONFIG.defaultTopicWeights, ...defaultWeights };
+    const topicCodes = resolvedTopics.map(topic => topic.code);
 
     this.data = {
       totalQuestions,
       questionsByTopic,
-      masteryStats: topics,
-      recentSessions,
+      topics: resolvedTopics,
+      masteryStats,
+      recentSessions: sessions,
       flashcardStats,
-      weakAreas: this.weakAreas,
+      weakAreas: calculateWeakAreas(resolvedTopics, masteryStats, weights, 5),
+      readiness: calculateReadiness(topicCodes, masteryStats, weights),
+      streaks: calculateStreaks(sessions),
     };
-    console.log('DashboardView.loadData: data set, totalQuestions=', this.data.totalQuestions);
   }
 
   private getStatsHTML(): string {
     if (!this.data) return '';
-    const { totalQuestions, masteryStats, flashcardStats } = this.data;
-    const avgMastery = Object.values(masteryStats).length > 0
-      ? Object.values(masteryStats).reduce((sum, s) => sum + s.avgMastery, 0) / Object.values(masteryStats).length
-      : 0;
-    const readinessPercent = Math.round(avgMastery * 100);
-    const readinessLabels = ['Belum Siap', 'Perlu Ulang', 'Siap', 'Sangat Siap'];
-    const readinessLevel = readinessPercent >= 80 ? 3 : readinessPercent >= 60 ? 2 : readinessPercent >= 40 ? 1 : 0;
+    const { totalQuestions, flashcardStats, readiness, streaks } = this.data;
+    const band = readiness.band;
 
     return `
-      <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:var(--space-4);">
+      <div class="analytics-stats-grid">
         <div class="card">
-          <div class="card-content" style="display:flex;align-items:center;gap:var(--space-4);">
+          <div class="card-content stat-card">
             <div class="stat-icon stat-icon-blue">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -90,53 +105,45 @@ export class DashboardView {
                 <polyline points="10 9 9 9 8 9"/>
               </svg>
             </div>
-            <div>
-              <div class="stat-value">${totalQuestions}</div>
-              <div class="stat-label">${t('qb.title')}</div>
-            </div>
+            <div><div class="stat-value">${totalQuestions}</div><div class="stat-label">${t('qb.title')}</div></div>
           </div>
         </div>
-
         <div class="card">
-          <div class="card-content" style="display:flex;align-items:center;gap:var(--space-4);">
+          <div class="card-content stat-card">
             <div class="stat-icon stat-icon-green">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="2" y="4" width="20" height="16" rx="2"/>
                 <path d="M6 8h12M6 12h12M6 16h8"/>
               </svg>
             </div>
-            <div>
-              <div class="stat-value">${flashcardStats.due}</div>
-              <div class="stat-label">${t('flash.dueToday')}</div>
-            </div>
+            <div><div class="stat-value">${flashcardStats.due}</div><div class="stat-label">${t('flash.dueToday')}</div></div>
           </div>
         </div>
-
         <div class="card">
-          <div class="card-content" style="display:flex;align-items:center;gap:var(--space-4);">
+          <div class="card-content stat-card streak-card">
             <div class="stat-icon stat-icon-amber">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
               </svg>
             </div>
             <div>
-              <div class="stat-value">${this.getStreak()}</div>
-              <div class="stat-label">${t('analytics.currentStreak', { days: this.getStreak() })}</div>
+              <div class="stat-value">${streaks.current} 🔥</div>
+              <div class="stat-label">${t('analytics.currentStreak', { days: streaks.current })}</div>
+              <div class="stat-hint">${t('analytics.longestStreak', { days: streaks.longest })}</div>
             </div>
           </div>
         </div>
-
         <div class="card">
-          <div class="card-content" style="display:flex;align-items:center;gap:var(--space-4);">
+          <div class="card-content stat-card">
             <div class="stat-icon" style="background:var(--color-primary-light);color:var(--color-primary);">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 20V10M12 20V4M6 20v-6"/>
               </svg>
             </div>
             <div>
-              <div class="stat-value">${readinessPercent}%</div>
+              <div class="stat-value">${readiness.percent}%</div>
               <div class="stat-label">${t('analytics.readiness')}</div>
+              <span class="badge ${READINESS_BAND_CLASSES[band]} readiness-badge readiness-badge--compact">${t(`analytics.readinessLevels.${band}`)}</span>
             </div>
           </div>
         </div>
@@ -145,11 +152,10 @@ export class DashboardView {
   }
 
   private getWeakAreasHTML(): string {
-    if (this.weakAreas.length === 0) {
+    if (!this.data || this.data.weakAreas.length === 0) {
       return `
         <div class="empty-state" style="padding:var(--space-8);">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" style="margin-bottom:var(--space-4);opacity:0.5;">
-            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
             <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <div class="empty-state-title">Tidak ada area lemah signifikan</div>
@@ -158,22 +164,21 @@ export class DashboardView {
       `;
     }
 
-    return this.weakAreas.map(w => {
-      const stats = this.data?.masteryStats[w.topicCode];
-      const topicTitle = 'Topic ' + w.topicCode; // Simplified to avoid Promise
-      return `
-        <a href="#/practice?topic=${w.topicCode}" class="weak-area-item" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-md);text-decoration:none;transition:all var(--transition-fast);" onmouseover="this.style.borderColor='var(--color-primary)';this.style.background='var(--color-primary-light)'" onmouseout="this.style.borderColor='var(--color-border)';this.style.background='transparent'">
-          <div class="weak-area-mastery" style="width:56px;height:56px;border-radius:50%;background:conic-gradient(var(--color-primary) ${Math.round(w.mastery * 100)}%, var(--color-border) ${Math.round(w.mastery * 100)}%);display:flex;align-items:center;justify-content:center;position:relative;">
-            <div style="width:40px;height:40px;border-radius:50%;background:var(--color-bg-elevated);display:flex;align-items:center;justify-content:center;font-weight:var(--font-bold);font-size:var(--text-sm);color:var(--color-primary);">${Math.round(w.mastery * 100)}%</div>
-          </div>
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:var(--font-medium);color:var(--color-text);">${topicTitle}</div>
-            <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${t('analytics.byTopic')}: ${w.topicCode} • ${t('analytics.readiness')}: ${Math.round(w.mastery * 100)}% • ${t('settings.topicWeights')}: ${w.weight}x</div>
-          </div>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-muted);flex-shrink:0;"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        </a>
-      `;
-    }).join('');
+    return `<div class="weak-area-list">${this.data.weakAreas.map((weak, index) => `
+      <a href="#/practice?topic=${encodeURIComponent(weak.topicCode)}"
+         class="weak-area-item" style="--mastery-color:${getMasteryColor(weak.masteryLevel)};--topic-color:${getSubdomainColor(weak.topicCode)};--weak-progress:${weak.masteryPercent}%">
+        <span class="weak-area-rank" aria-hidden="true">${index + 1}</span>
+        <span class="weak-area-progress" role="img" aria-label="Kemahiran ${weak.masteryPercent}%">
+          <span class="weak-area-progress-value">${weak.masteryPercent}%</span>
+        </span>
+        <span class="weak-area-info">
+          <span class="weak-area-title">${weak.title}</span>
+          <span class="weak-area-meta">${weak.topicCode} • ${t('analytics.byTopic')} • bobot ${weak.weight}x • prioritas ${weak.weaknessScore.toFixed(2)}</span>
+          <span class="weak-area-bar"><span style="width:${weak.masteryPercent}%"></span></span>
+        </span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+    `).join('')}</div>`;
   }
 
   private getRecentSessionsHTML(): string {
@@ -184,8 +189,7 @@ export class DashboardView {
       return `
         <div class="empty-state" style="padding:var(--space-8);">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
-            <rect x="2" y="4" width="20" height="16" rx="2"/>
-            <path d="M6 8h12M6 12h12M6 16h8"/>
+            <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h12M6 12h12M6 16h8"/>
           </svg>
           <div class="empty-state-title">${t('practice.title')} Belum Ada Sesi</div>
           <div class="empty-state-description">Mulai latihan atau ujian CAT pertama Anda untuk melihat riwayat di sini.</div>
@@ -202,8 +206,8 @@ export class DashboardView {
       const score = s.summary ? `${s.summary.scorePercent}%` : '-';
       const date = new Date(s.startedAt).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
       return `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-md);">
-          <div style="display:flex;align-items:center;gap:var(--space-3);">
+        <div class="session-row">
+          <div class="session-row-main">
             <span class="badge badge-${s.mode === 'mock-exam' ? 'danger' : s.mode === 'practice' ? 'primary' : 'success'}">${modeLabels[s.mode] || s.mode}</span>
             <div>
               <div style="font-weight:var(--font-medium);">${s.topicCodes.join(', ')}</div>
@@ -221,33 +225,35 @@ export class DashboardView {
 
   private getReadinessHTML(): string {
     if (!this.data) return '';
-    const { masteryStats } = this.data;
-    const avgMastery = Object.values(masteryStats).length > 0
-      ? Object.values(masteryStats).reduce((sum, s) => sum + s.avgMastery, 0) / Object.values(masteryStats).length
-      : 0;
-    const readinessPercent = Math.round(avgMastery * 100);
-    const readinessLevel = readinessPercent >= 80 ? 3 : readinessPercent >= 60 ? 2 : readinessPercent >= 40 ? 1 : 0;
-    const readinessLabels = ['Belum Siap', 'Perlu Ulang', 'Siap', 'Sangat Siap'];
+    const { percent, band, estimatedCatScore, coveredTopics, totalTopics, confidencePercent } = this.data.readiness;
 
     return `
-      <div class="card">
-        <div class="card-header">
-          <h2 class="card-title">${t('analytics.readiness')}</h2>
-        </div>
+      <div class="card readiness-card">
+        <div class="card-header"><h2 class="card-title">${t('analytics.readiness')}</h2></div>
         <div class="card-content">
-          <div style="text-align:center;padding:var(--space-8);">
-            <div style="width:120px;height:120px;border-radius:50%;background:conic-gradient(var(--color-primary) ${readinessPercent}%, var(--color-border) ${readinessPercent}%);display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-4);position:relative;">
-              <div style="width:90px;height:90px;border-radius:50%;background:var(--color-bg-elevated);display:flex;align-items:center;justify-content:center;flex-direction:column;">
-                <div style="font-size:var(--text-3xl);font-weight:var(--font-bold);color:var(--color-primary);">${readinessPercent}%</div>
-                <div style="font-size:var(--text-xs);color:var(--color-text-muted);">${t('analytics.readiness')}</div>
+          <div class="readiness-layout">
+            <div class="readiness-ring" style="--readiness-value:${percent}%;--readiness-color:${READINESS_BAND_COLORS[band]};"
+                 role="img" aria-label="${t('analytics.readiness')}: ${percent}%">
+              <div class="readiness-ring-inner">
+                <span class="readiness-ring-value">${percent}%</span>
+                <span class="readiness-ring-label">${t('analytics.readiness')}</span>
               </div>
             </div>
-            <div style="font-size:var(--text-xl);font-weight:var(--font-bold);color:var(--color-primary);margin-bottom:var(--space-2);">${readinessLabels[readinessLevel]}</div>
-            <div style="color:var(--color-text-muted);margin-bottom:var(--space-6);">${t('analytics.estimatedScore', { score: readinessPercent })}</div>
-            <div style="display:flex;gap:var(--space-3);justify-content:center;flex-wrap:wrap;">
-              <a href="#/practice?weak=true" class="btn btn-primary">${t('practice.title')} Area Lemah</a>
-              <a href="#/mock-exam" class="btn btn-secondary">${t('mock.start')}</a>
-              <a href="#/flashcards" class="btn btn-secondary">${t('flash.title')}</a>
+            <div class="readiness-details">
+              <span class="badge ${READINESS_BAND_CLASSES[band]} readiness-badge">${t(`analytics.readinessLevels.${band}`)}</span>
+              <div class="readiness-estimate">${t('analytics.estimatedScore', { score: estimatedCatScore })}</div>
+              <div class="readiness-confidence">
+                <div class="readiness-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                     aria-valuenow="${confidencePercent}" aria-label="Cakupan topik terlatih">
+                  <div class="readiness-meter-fill" style="width:${confidencePercent}%"></div>
+                </div>
+                <span>${coveredTopics}/${totalTopics} ${t('analytics.byTopic').toLowerCase()} terlatih</span>
+              </div>
+              <div class="readiness-actions">
+                <a href="#/practice?weak=true" class="btn btn-primary">${t('practice.title')} Area Lemah</a>
+                <a href="#/mock-exam" class="btn btn-secondary">${t('mock.start')}</a>
+                <a href="#/flashcards" class="btn btn-secondary">${t('flash.title')}</a>
+              </div>
             </div>
           </div>
         </div>
@@ -256,37 +262,43 @@ export class DashboardView {
   }
 
   private getMasteryGridHTML(): string {
-    const topics = getKisiKisiSync();
-    const masteryStats = this.data?.masteryStats || {};
+    const topics = this.data?.topics ?? [];
+    const masteryStats = this.data?.masteryStats ?? {};
+
+    if (topics.length === 0) {
+      return `<div class="empty-state" style="padding:var(--space-8);"><div class="empty-state-title">${t('analytics.masteryGrid')}</div><div class="empty-state-description">Data kisi-kisi belum tersedia.</div></div>`;
+    }
 
     return `
-      <div class="card">
-        <div class="card-header">
-          <h2 class="card-title">${t('analytics.masteryGrid')}</h2>
-        </div>
-        <div class="card-content">
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:var(--space-3);">
-            ${topics.map(topic => {
-              const stats = masteryStats[topic.code];
-              const mastery = stats?.avgMastery || 0;
-              const masteryLevel = Math.round(mastery * 3);
-              const count = stats?.total || 0;
-              return `
-                <a href="#/practice?topic=${topic.code}" class="mastery-tile" style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3);background:var(--color-bg);transition:all var(--transition-fast);text-decoration:none;" onmouseover="this.style.borderColor='var(--color-primary)';this.style.boxShadow='var(--shadow-md)'" onmouseout="this.style.borderColor='var(--color-border)';this.style.boxShadow='none'" title="${topic.title} (${topic.subdomain})">
-                  <div style="font-size:var(--text-xs);font-weight:var(--font-medium);color:var(--color-text-muted);margin-bottom:var(--space-1);">${topic.code}</div>
-                  <div style="font-size:var(--text-sm);font-weight:var(--font-semibold);color:var(--color-text);margin-bottom:var(--space-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${topic.title}</div>
-                  <div style="display:flex;align-items:center;justify-content:space-between;">
-                    <span class="badge badge-mastery-${masteryLevel}" style="font-size:var(--text-xs);">${['Baru', 'Belajar', 'Ulang', 'Mahir'][masteryLevel]}</span>
-                    <span style="font-size:var(--text-xs);color:var(--color-text-muted);">${count} soal</span>
-                  </div>
-                  <div style="height:4px;background:var(--color-border);border-radius:var(--radius-full);margin-top:var(--space-2);overflow:hidden;">
-                    <div style="width:${Math.round(mastery * 100)}%;height:100%;background:var(--color-primary);border-radius:var(--radius-full);transition:width var(--transition-normal);"></div>
-                  </div>
-                </a>
-              `;
-            }).join('')}
-          </div>
-        </div>
+      <div class="mastery-grid" role="list" aria-label="${t('analytics.masteryGrid')}">
+        ${topics.map(topic => {
+          const stats = masteryStats[topic.code];
+          const level = getMasteryLevel(stats?.avgMastery);
+          const percent = getMasteryPercent(level);
+          const label = getMasteryLabel(level);
+          const count = stats?.total ?? 0;
+          return `
+            <a href="#/practice?topic=${encodeURIComponent(topic.code)}"
+               class="mastery-tile mastery-tile--level-${level}"
+               style="--mastery-color:${getMasteryColor(level)};--topic-color:${getSubdomainColor(topic.code)}"
+               role="listitem" title="${topic.title} (${topic.subdomain})"
+               aria-label="${topic.code} ${topic.title}: ${label}, ${percent}%">
+              <span class="mastery-tile-head">
+                <span class="badge badge-topic">${topic.code}</span>
+                <span class="mastery-tile-count">${count} soal</span>
+              </span>
+              <span class="mastery-tile-title">${topic.title}</span>
+              <span class="mastery-tile-footer">
+                <span class="badge badge-mastery-${level}">${label}</span>
+                <span class="mastery-tile-percent">${percent}%</span>
+              </span>
+              <span class="mastery-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                    aria-valuenow="${percent}" aria-label="${topic.code} ${label}">
+                <span class="mastery-progress-fill" style="width:${percent}%"></span>
+              </span>
+            </a>
+          `;
+        }).join('')}
       </div>
     `;
   }
@@ -301,8 +313,8 @@ export class DashboardView {
         this.element.innerHTML = this.getHTML();
         this.bindEvents();
       }
-    }).catch((err) => {
-      console.error('DashboardView loadData error:', err);
+    }).catch((error) => {
+      console.error('DashboardView loadData error:', error);
       if (this.element) {
         this.element.innerHTML = this.getHTML();
         this.bindEvents();
@@ -318,7 +330,7 @@ export class DashboardView {
         <h1 class="page-title">${t('nav.dashboard')}</h1>
         <p class="page-subtitle">${t('app.tagline')}</p>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:var(--space-4);">
+      <div class="analytics-stats-grid">
         ${['totalQuestions', 'dueCards', 'studyStreak', 'readinessScore'].map(() => `
           <div class="card skeleton">
             <div class="card-content" style="padding:var(--space-5);">
@@ -328,7 +340,7 @@ export class DashboardView {
           </div>
         `).join('')}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:var(--space-4);margin-top:var(--space-4);">
+      <div class="analytics-content-grid" style="margin-top:var(--space-4);">
         ${['weakAreas', 'recentSessions'].map(() => `
           <div class="card skeleton">
             <div class="card-header"><div class="skeleton-loader" style="height:20px;width:30%;"></div></div>
@@ -336,7 +348,7 @@ export class DashboardView {
           </div>
         `).join('')}
       </div>
-      <div class="card" style="margin-top:var(--space-4);">
+      <div class="card skeleton" style="margin-top:var(--space-4);">
         <div class="card-header"><div class="skeleton-loader" style="height:20px;width:40%;"></div></div>
         <div class="card-content" style="padding:var(--space-5);min-height:300px;"></div>
       </div>
@@ -352,67 +364,49 @@ export class DashboardView {
           <h1 class="page-title">${t('nav.dashboard')}</h1>
           <p class="page-subtitle">${t('app.tagline')}</p>
         </div>
-        <div class="page_actions">
-          <a href="#/mock-exam" class="btn btn_primary">${t('mock.start')}</a>
-          <a href="#/practice?weak=true" class="btn btn_secondary">${t('practice.title')}</a>
-          <a href="#/flashcards" class="btn btn_secondary">${t('flash.title')}</a>
+        <div class="page-actions">
+          <a href="#/mock-exam" class="btn btn-primary">${t('mock.start')}</a>
+          <a href="#/practice?weak=true" class="btn btn-secondary">${t('practice.title')}</a>
+          <a href="#/flashcards" class="btn btn-secondary">${t('flash.title')}</a>
         </div>
       </div>
 
       ${this.getStatsHTML()}
 
-      <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:var(--space-4);margin-top:var(--space-4);">
-        <div class="card">
+      <div class="analytics-content-grid" style="margin-top:var(--space-4);">
+        <section class="card">
+          <div class="card-header"><h2 class="card-title">${t('analytics.weakAreas')}</h2></div>
+          <div class="card-content">${this.getWeakAreasHTML()}</div>
+        </section>
+        <section class="card">
           <div class="card-header">
-            <h2 class="card-title">${t('analytics.weakAreas')}</h2>
-          </div>
-          <div class="card_content">
-            ${this.getWeakAreasHTML()}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card_header">
             <h2 class="card-title">${t('analytics.recentSessions')}</h2>
-            <a href="#/analytics" class="btn btn_ghost btn_sm">${t('common.more')}</a>
+            <a href="#/analytics" class="btn btn-ghost btn-sm">${t('common.more')}</a>
           </div>
-          <div class="card_content">
-            ${this.getRecentSessionsHTML()}
-          </div>
-        </div>
+          <div class="card-content">${this.getRecentSessionsHTML()}</div>
+        </section>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:var(--space-4);margin-top:var(--space-4);">
+      <div class="analytics-content-grid" style="margin-top:var(--space-4);">
         ${this.getReadinessHTML()}
-        ${this.getMasteryGridHTML()}
+        <section class="card">
+          <div class="card-header"><h2 class="card-title">${t('analytics.masteryGrid')}</h2></div>
+          <div class="card-content">${this.getMasteryGridHTML()}</div>
+        </section>
       </div>
     `;
-  }
-
-  private getStreak(): number {
-    const streakData = localStorage.getItem('study-streak');
-    if (streakData) {
-      try {
-        const { current, lastDate } = JSON.parse(streakData);
-        const today = new Date().toISOString().split('T')[0];
-        if (lastDate === today) return current;
-        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-        if (lastDate === yesterday) return current;
-        return 0;
-      } catch {}
-    }
-    return 0;
   }
 
   private bindEvents(): void {
     if (!this.element) return;
 
-    this.element.addEventListener('click', (e) => {
-      const tile = (e.target as HTMLElement).closest('.mastery-tile');
+    this.element.addEventListener('click', (event) => {
+      const tile = (event.target as HTMLElement).closest('.mastery-tile');
       if (tile) {
         const topicCode = tile.getAttribute('href')?.match(/topic=([^&]+)/)?.[1];
         if (topicCode) {
-          navigate('practice', { topic: topicCode });
+          event.preventDefault();
+          navigate('practice', { topic: decodeURIComponent(topicCode) });
         }
       }
     });
