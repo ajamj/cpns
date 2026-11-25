@@ -1,6 +1,7 @@
 // Flashcards Repository
 import { db } from '../schema';
 import type { Flashcard, SM2Params } from '../../shared/types';
+import { reviewCard, sortByDueDate, type SM2Options, type SM2Rating } from '../../features/flashcards/sm2';
 
 export const flashcardsRepo = {
   async getAll(): Promise<Flashcard[]> {
@@ -30,14 +31,27 @@ export const flashcardsRepo = {
     return cards;
   },
 
-  // Get due cards for study session
+  // Get due cards for study session — oldest due date first
   async getDueCards(limit = 50): Promise<Flashcard[]> {
     const today = new Date().toISOString().split('T')[0] ?? '';
-    return db.flashcards
+    const due = await db.flashcards
       .where('dueDate')
       .belowOrEqual(today)
-      .limit(limit)
       .toArray();
+    return sortByDueDate(due).slice(0, limit);
+  },
+
+  // Apply an SM-2 rating to a stored card and persist the new schedule
+  async applyRating(
+    id: string,
+    rating: SM2Rating,
+    options: SM2Options = {},
+  ): Promise<Flashcard | undefined> {
+    const card = await db.flashcards.get(id);
+    if (!card) return undefined;
+    const updated = reviewCard(card, rating, options);
+    await db.flashcards.put(updated);
+    return updated;
   },
 
   async getDueCount(): Promise<number> {

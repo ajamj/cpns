@@ -4,52 +4,11 @@ import { flashcardsRepo } from '../db/repositories/flashcards';
 import { loadKisiKisi } from '../features/kisi-kisi/registry';
 import { navigate, t } from '../core/i18n';
 import { eventBus } from '../core/events';
-import { generateId, nowISO, todayISO, addDays } from '../core/utils';
+import { generateId, nowISO, todayISO } from '../core/utils';
 import type { Flashcard, SM2Params } from '../shared/types';
+import { DEFAULT_SM2_PARAMS, reviewCard } from '../features/flashcards/sm2';
 
-const SM2_DEFAULTS: SM2Params = {
-  initialInterval: 1,
-  secondInterval: 6,
-  easyBonus: 1.3,
-  hardPenalty: 1.2,
-  minEaseFactor: 1.3,
-  maxInterval: 36500,
-};
-
-function sm2(card: Flashcard, quality: 0 | 1 | 2 | 3 | 4 | 5, params: SM2Params): Partial<Flashcard> {
-  let { easeFactor, interval, reps, lapses } = card;
-  const q = quality;
-
-  if (q >= 3) { // Good (3) or Easy (4,5)
-    if (reps === 0) interval = params.initialInterval;
-    else if (reps === 1) interval = params.secondInterval;
-    else interval = Math.round(interval * easeFactor);
-
-    if (q === 5) interval = Math.round(interval * params.easyBonus);
-    reps++;
-  } else { // Again (0,1) or Hard (2)
-    reps = 0;
-    interval = params.initialInterval;
-    lapses++;
-  }
-
-  easeFactor = easeFactor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
-  if (easeFactor < params.minEaseFactor) easeFactor = params.minEaseFactor;
-  if (interval > params.maxInterval) interval = params.maxInterval;
-
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + interval);
-
-  return {
-    interval,
-    easeFactor,
-    reps,
-    lapses,
-    dueDate: dueDate.toISOString().split('T')[0],
-    lastReviewed: nowISO(),
-    updatedAt: nowISO(),
-  };
-}
+const SM2_DEFAULTS: SM2Params = DEFAULT_SM2_PARAMS;
 
 export class FlashcardsView {
   private params: Record<string, string>;
@@ -292,7 +251,7 @@ export class FlashcardsView {
   private async rateCard(quality: 0 | 1 | 2 | 3): Promise<void> {
     if (!this.currentCard) return;
 
-    const updated = sm2(this.currentCard, quality as any, this.params_s);
+    const updated = reviewCard(this.currentCard, quality, { params: this.params_s });
     Object.assign(this.currentCard, updated);
     await flashcardsRepo.put(this.currentCard);
 
