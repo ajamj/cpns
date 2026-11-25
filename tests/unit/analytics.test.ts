@@ -8,10 +8,13 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateReadiness,
   calculateStreaks,
+  calculateTrendLine,
   calculateWeakAreas,
+  calculateMasteryTrend,
   getMasteryLevel,
   getMasteryPercent,
   type MasteryStats,
+  type MasteryTrendAnswer,
 } from '../../src/features/analytics/metrics';
 
 const topic = (code: string, title = code) => ({ code, title });
@@ -137,5 +140,52 @@ describe('study streak', () => {
       current: 0, longest: 0, activeDays: 0,
     });
     expect(calculateStreaks([], now).current).toBe(0);
+  });
+});
+
+describe('mastery-over-time trend', () => {
+  const now = new Date(2026, 4, 15, 12, 0, 0);
+  const answer = (
+    questionId: string, topicCode: string, day: number, isCorrect: boolean
+  ): MasteryTrendAnswer => ({
+    questionId,
+    topicCode,
+    date: `2026-05-${String(day).padStart(2, '0')}`,
+    isCorrect,
+    timestamp: new Date(2026, 4, day, 9).toISOString(),
+  });
+
+  it('replays answers into daily 0-3 mastery averages grouped by local day', () => {
+    const points = calculateMasteryTrend([
+      answer('q1', 'UM-01', 13, true),
+      answer('q2', 'KH-01', 13, false),
+      answer('q1', 'UM-01', 14, true),
+      answer('q2', 'KH-01', 15, true),
+    ], 3, now);
+
+    expect(points.map(point => point.date)).toEqual(['2026-05-13', '2026-05-14', '2026-05-15']);
+    expect(points.map(point => point.overall)).toEqual([0.5, 2, 1]);
+    expect(points.map(point => point.answered)).toEqual([2, 1, 1]);
+    expect(points[0]?.topics).toEqual({ 'UM-01': 1, 'KH-01': 0 });
+    expect(points[2]?.topics).toEqual({ 'KH-01': 1 });
+  });
+
+  it('seeds the window with earlier answers and leaves inactive days empty', () => {
+    const points = calculateMasteryTrend([
+      answer('q1', 'UM-01', 10, true),
+      answer('q1', 'UM-01', 11, true),
+      answer('q1', 'UM-01', 15, true),
+    ], 2, now); // 14–15 May
+
+    expect(points[0]?.overall).toBeNull();
+    expect(points[1]?.overall).toBe(3); // 0 -> 1 -> 2 -> clamped from earlier answers
+  });
+
+  it('produces an increasing least-squares line over available points', () => {
+    const trend = calculateTrendLine([0.5, 2, 1]);
+    expect(trend?.slope).toBeCloseTo(0.25, 2);
+    expect(trend!.start).toBeLessThan(trend!.end);
+    expect(calculateTrendLine([null, null])).toBeNull();
+    expect(calculateTrendLine([null, 1, null])).toEqual({ start: 1, end: 1, slope: 0 });
   });
 });

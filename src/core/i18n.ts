@@ -315,6 +315,8 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     'analytics.examTrend': 'Tren Skor Ujian',
     'analytics.weeklyReport': 'Laporan Mingguan',
     'analytics.exportReport': 'Ekspor Laporan',
+    'analytics.reportDescription': 'Buat laporan Markdown berisi kesiapan, kemahiran per topik, area lemah, streak, dan aktivitas 7 hari terakhir.',
+    'analytics.reportPreview': 'Pratinjau Markdown',
     'analytics.certificate': 'Sertifikat Kesiapan',
     
     // Settings
@@ -697,6 +699,8 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     'analytics.examTrend': 'Exam Score Trend',
     'analytics.weeklyReport': 'Weekly Report',
     'analytics.exportReport': 'Export Report',
+    'analytics.reportDescription': 'Generate a Markdown report with readiness, per-topic mastery, weak areas, streaks and the last 7 days of activity.',
+    'analytics.reportPreview': 'Markdown preview',
     'analytics.certificate': 'Readiness Certificate',
     
     'settings.title': 'Settings',

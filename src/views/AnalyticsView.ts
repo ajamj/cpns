@@ -1,7 +1,19 @@
-// Analytics View — mastery dashboard, readiness score, weak areas and streak.
+// Analytics View — mastery dashboard, readiness score, weak areas, streak and trends.
+import {
+  CategoryScale,
+  Chart,
+  Legend,
+  LinearScale,
+  LineController,
+  LineElement,
+  PointElement,
+  Tooltip,
+  type ChartConfiguration,
+} from 'chart.js';
 import { questionsRepo } from '../db/repositories/questions';
 import { sessionsRepo } from '../db/repositories/sessions';
 import { flashcardsRepo } from '../db/repositories/flashcards';
+import { db } from '../db/schema';
 import {
   loadKisiKisi,
   getMasteryLabel,
@@ -13,13 +25,21 @@ import {
   calculateReadiness,
   calculateStreaks,
   calculateWeakAreas,
+  calculateMasteryTrend,
+  calculateTrendLine,
   getMasteryLevel,
   getMasteryPercent,
   type MasteryStats,
+  type MasteryTrendAnswer,
   type ReadinessResult,
   type StreakResult,
   type WeakArea,
 } from '../features/analytics/metrics';
+import {
+  buildWeeklyReport,
+  weeklyReportFilename,
+  type FlashcardStats,
+} from '../features/analytics/weekly-report';
 import { APP_CONFIG } from '../core/config';
 import { getLocale, t } from '../core/i18n';
 import { showToast } from '../core/app-utils';
@@ -27,9 +47,26 @@ import type { KisiKisiTopic, Session } from '../shared/types';
 
 /** Window of recent sessions used for the activity list, streaks and heatmap. */
 const SESSION_WINDOW = 1000;
+/** Window passed to sessionsRepo for the weekly report (Phase 4, Task 6). */
+const REPORT_SESSION_WINDOW = 500;
 /** A year of activity: 53 Monday-first weeks (the current week included). */
 const HEATMAP_WEEKS = 53;
 const DAYS_PER_WEEK = 7;
+/** Trend answer log cap — enough for years of practice on an offline device. */
+const MAX_TREND_ATTEMPTS = 10_000;
+const TREND_WINDOWS = [30, 90] as const;
+type TrendWindow = (typeof TREND_WINDOWS)[number];
+
+// Tree-shaken Chart.js registration: only the pieces the line chart needs.
+Chart.register(
+  CategoryScale,
+  LinearScale,
+  LineController,
+  LineElement,
+  PointElement,
+  Tooltip,
+  Legend
+);
 
 type HeatmapLevel = 0 | 1 | 2 | 3;
 
@@ -45,6 +82,19 @@ function localDateKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** Topic titles in the Markdown preview must never be injected as HTML. */
+function escapeHTML(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      default: return '&#39;';
+    }
+  });
 }
 
 function activityLevel(count: number): HeatmapLevel {
@@ -68,11 +118,18 @@ export class AnalyticsView {
   private weights: Record<string, number> = { ...APP_CONFIG.defaultTopicWeights };
   private masteryStats: MasteryStats = {};
   private recentSessions: Session[] = [];
-  private flashcardStats = { due: 0, new: 0, learning: 0, review: 0, mature: 0 };
+  private flashcardStats: FlashcardStats = { due: 0, new: 0, learning: 0, review: 0, mature: 0 };
+  private reportSessions: Session[] = [];
+  private reportMarkdown = '';
+  private reportGeneratedAt = new Date();
   private weakAreas: WeakArea[] = [];
   private readiness: ReadinessResult = calculateReadiness([], {});
   private streaks: StreakResult = { current: 0, longest: 0, activeDays: 0 };
   private activityCounts: Map<string, number> = new Map();
+  private masteryAnswers: MasteryTrendAnswer[] = [];
+  private trendWindow: TrendWindow = 30;
+  private trendTopic = 'all';
+  private masteryChart: Chart | null = null;
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -304,6 +361,183 @@ export class AnalyticsView {
     `;
   }
 
+  /** Topic options are taken from the 90-day history so 30/90 switching never loses a selection. */
+  private getTrendTopicOptions(): string {
+    const seen = new Set<string>();
+    for (const point of calculateMasteryTrend(this.masteryAnswers, 90)) {
+      for (const code of Object.keys(point.topics)) seen.add(code);
+    }
+    const label = getLocale() === 'en' ? 'All topics' : 'Semua topik';
+    const options = [`<option value="all"${this.trendTopic === 'all' ? ' selected' : ''}>${label}</option>`];
+    for (const code of [...seen].sort()) {
+      const title = this.topics.find(topic => topic.code === code)?.title ?? code;
+      options.push(
+        `<option value="${code}"${this.trendTopic === code ? ' selected' : ''}>${code} — ${title}</option>`
+      );
+    }
+    return options.join('');
+  }
+
+  private getMasteryTrendHTML(): string {
+    const isEnglish = getLocale() === 'en';
+    return `
+      <section class="card mastery-trend-card" aria-labelledby="masteryTrendTitle">
+        <div class="card-header mastery-trend-header">
+          <h2 class="card-title" id="masteryTrendTitle">${isEnglish ? 'Mastery by Topic (30/90 days)' : 'Kemahiran per Topik (30/90 hari)'}</h2>
+          <div class="mastery-trend-range" role="group" aria-label="${isEnglish ? 'Trend window' : 'Rentang tren'}">
+            ${TREND_WINDOWS.map(days => `
+              <button type="button" class="btn btn-sm ${this.trendWindow === days ? 'btn-primary is-active' : 'btn-secondary'}"
+                      data-trend-range="${days}" aria-pressed="${this.trendWindow === days}">${days} ${isEnglish ? 'days' : 'hari'}</button>
+            `).join('')}
+          </div>
+        </div>
+        <div class="card-content">
+          <div class="mastery-trend-toolbar">
+            <label for="masteryTrendTopic">${isEnglish ? 'Topic' : 'Topik'}</label>
+            <select id="masteryTrendTopic" class="form-select">${this.getTrendTopicOptions()}</select>
+          </div>
+          <div class="mastery-trend-canvas-wrap">
+            <canvas id="masteryTrendChart" role="img"
+              aria-label="${isEnglish ? 'Line chart of average mastery level (0-3) over recent days' : 'Grafik garis rata-rata tingkat kemahiran (0-3) beberapa hari terakhir'}">
+              ${isEnglish ? 'Mastery trend chart' : 'Grafik tren kemahiran'}
+            </canvas>
+          </div>
+          <p class="mastery-trend-empty" id="masteryTrendEmpty" hidden>
+            ${isEnglish ? 'No answers in this period yet. Complete a practice session to see the trend.' : 'Belum ada jawaban pada periode ini. Selesaikan sesi latihan untuk melihat tren.'}
+          </p>
+          <p class="mastery-trend-caption" id="masteryTrendSummary" aria-live="polite"></p>
+        </div>
+      </section>
+    `;
+  }
+
+  /**
+   * Build (or rebuild) the Chart.js line chart. Called after data load and on
+   * every range/topic change so the chart always reflects the current selection.
+   */
+  private renderMasteryChart(): void {
+    const canvas = this.element?.querySelector<HTMLCanvasElement>('#masteryTrendChart');
+    const empty = this.element?.querySelector<HTMLElement>('#masteryTrendEmpty');
+    const summary = this.element?.querySelector<HTMLElement>('#masteryTrendSummary');
+    if (!canvas || !empty || !summary) return;
+
+    this.masteryChart?.destroy();
+    this.masteryChart = null;
+
+    const isEnglish = getLocale() === 'en';
+    const points = calculateMasteryTrend(this.masteryAnswers, this.trendWindow);
+    const relevant = points.filter(point => this.trendTopic === 'all'
+      ? point.overall !== null
+      : point.topics[this.trendTopic] != null);
+    const selectedValues = relevant.map(point => this.trendTopic === 'all'
+      ? point.overall
+      : point.topics[this.trendTopic] ?? null);
+    const trend = calculateTrendLine(selectedValues);
+
+    if (relevant.length === 0) {
+      empty.hidden = false;
+      canvas.hidden = true;
+      summary.textContent = isEnglish
+        ? 'No mastery data for the selected topic and period.'
+        : 'Belum ada data kemahiran untuk topik dan periode yang dipilih.';
+      return;
+    }
+    empty.hidden = true;
+    canvas.hidden = false;
+
+    const locale = isEnglish ? 'en-US' : 'id-ID';
+    const labels = points.map(point =>
+      new Date(`${point.date}T12:00:00`).toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+    );
+    const label = this.trendTopic === 'all'
+      ? (isEnglish ? 'Average mastery' : 'Rata-rata kemahiran')
+      : (this.topics.find(topic => topic.code === this.trendTopic)?.title ?? this.trendTopic);
+    const lineData: (number | null)[] = points.map(point => this.trendTopic === 'all'
+      ? point.overall
+      : point.topics[this.trendTopic] ?? null);
+    const trendData: (number | null)[] = new Array(points.length).fill(null);
+    if (trend) {
+      trendData[0] = trend.start;
+      if (points.length > 1) trendData[points.length - 1] = trend.end;
+    }
+
+    const config: ChartConfiguration<'line', (number | null)[], string> = {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label,
+            data: lineData,
+            borderColor: '#1e3a5f',
+            backgroundColor: 'rgba(30, 58, 95, 0.12)',
+            borderWidth: 2,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            tension: 0.25,
+            spanGaps: true,
+          },
+          {
+            label: isEnglish ? 'Trend' : 'Tren',
+            data: trendData,
+            borderColor: '#0e7490',
+            borderDash: [6, 4],
+            borderWidth: 2,
+            pointRadius: 0,
+            spanGaps: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          y: {
+            min: 0,
+            max: 3,
+            ticks: {
+              stepSize: 1,
+              color: '#55657a',
+              callback: value => {
+                const level = Number(value);
+                if (level === 0) return isEnglish ? 'New' : 'Baru';
+                if (level === 1) return isEnglish ? 'Learning' : 'Belajar';
+                if (level === 2) return isEnglish ? 'Review' : 'Ulang';
+                return isEnglish ? 'Mastered' : 'Mahir';
+              },
+            },
+            grid: { color: '#e2e8f0' },
+          },
+          x: {
+            ticks: { color: '#55657a', maxTicksLimit: 10, autoSkip: true },
+            grid: { display: false },
+          },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#0f172a', boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              title: items => points[items[0]?.dataIndex ?? 0]?.date ?? '',
+              label: item => `${item.dataset.label}: ${Number(item.parsed.y).toFixed(2)} / 3`,
+            },
+          },
+        },
+      },
+    };
+
+    this.masteryChart = new Chart(canvas, config);
+
+    const answered = relevant.reduce((sum, point) => sum + point.answered, 0);
+    const latest = selectedValues[selectedValues.length - 1];
+    const direction = trend && Math.abs(trend.slope) >= 0.001
+      ? (trend.slope > 0 ? (isEnglish ? 'improving' : 'meningkat') : (isEnglish ? 'declining' : 'menurun'))
+      : (isEnglish ? 'stable' : 'stabil');
+    summary.textContent = isEnglish
+      ? `${answered} answers on ${relevant.length} active days · latest ${Number(latest ?? 0).toFixed(2)}/3 · ${direction}`
+      : `${answered} jawaban pada ${relevant.length} hari aktif · terakhir ${Number(latest ?? 0).toFixed(2)}/3 · ${direction}`;
+  }
+
   private getHTML(): string {
     return `
       <div class="page-header">
@@ -315,6 +549,7 @@ export class AnalyticsView {
         </div>
       </div>
       ${this.getReadinessHTML()}
+      ${this.getMasteryTrendHTML()}
       ${this.getStatsHTML()}
       <section class="card streak-heatmap-card">
         <div class="card-header"><h2 class="card-title">${t('analytics.heatmap')}</h2><span class="badge badge-warning">🔥 ${this.streaks.current} ${getLocale() === 'en' ? 'days' : 'hari'}</span></div>
@@ -345,8 +580,52 @@ export class AnalyticsView {
           </div><div style="margin-top:var(--space-4);"><a href="#/flashcards" class="btn btn-primary" style="width:100%;">${t('flash.title')}</a></div></div>
         </section>
       </div>
-      <div class="card" style="margin-top:var(--space-4);"><div class="card-header"><h2 class="card-title">${t('analytics.weeklyReport')}</h2></div><div class="card-content"><p style="color:var(--color-text-muted);margin-bottom:var(--space-4);">Generate laporan mingguan dalam format Markdown untuk review atau berbagi.</p><div style="display:flex;gap:var(--space-3);flex-wrap:wrap;"><button class="btn btn-primary" id="btnGenerateReport">${t('analytics.weeklyReport')}</button><button class="btn btn-secondary" id="btnExportCertificate">${t('analytics.certificate')}</button></div></div></div>
+      ${this.getReportCardHTML()}
     `;
+  }
+
+  /** Markdown report card with a downloadable file and an inline preview. */
+  private getReportCardHTML(): string {
+    const generatedLabel = this.reportGeneratedAt.toLocaleString(getLocale() === 'en' ? 'en-US' : 'id-ID', {
+      dateStyle: 'medium', timeStyle: 'short',
+    });
+    return `
+      <section class="card report-card" aria-labelledby="report-heading">
+        <div class="card-header">
+          <h2 class="card-title" id="report-heading">${t('analytics.weeklyReport')}</h2>
+          <span class="badge badge-info">.md</span>
+        </div>
+        <div class="card-content">
+          <p class="report-description">${t('analytics.reportDescription')}</p>
+          <div class="report-actions">
+            <button class="btn btn-primary" id="btnGenerateReport">${t('analytics.weeklyReport')}</button>
+            <button class="btn btn-secondary" id="btnDownloadReport">${t('analytics.exportReport')}</button>
+            <button class="btn btn-ghost" id="btnExportCertificate">${t('analytics.certificate')}</button>
+          </div>
+          <details class="report-preview">
+            <summary>${t('analytics.reportPreview')}</summary>
+            <pre class="report-preview-code">${escapeHTML(this.reportPreviewText())}</pre>
+          </details>
+          <p class="report-meta">${escapeHTML(APP_CONFIG.name)} v${APP_CONFIG.version} • ${escapeHTML(generatedLabel)} • ${this.reportSessions.length} ${getLocale() === 'en' ? 'sessions in history' : 'sesi dalam riwayat'}</p>
+        </div>
+      </section>
+    `;
+  }
+
+  private reportPreviewText(): string {
+    const lines = this.reportMarkdown.split('\n').slice(0, 32);
+    return lines.length < this.reportMarkdown.split('\n').length
+      ? `${lines.join('\n')}\n…`
+      : lines.join('\n');
+  }
+
+  private refreshReportPreview(): void {
+    const preview = this.element?.querySelector<HTMLElement>('.report-preview-code');
+    if (preview) preview.textContent = this.reportPreviewText();
+    const meta = this.element?.querySelector<HTMLElement>('.report-meta');
+    if (meta) {
+      meta.textContent = `${APP_CONFIG.name} v${APP_CONFIG.version} • ${this.reportGeneratedAt.toLocaleString(getLocale() === 'en' ? 'en-US' : 'id-ID', { dateStyle: 'medium', timeStyle: 'short' })} • ${this.reportSessions.length} ${getLocale() === 'en' ? 'sessions in history' : 'sesi dalam riwayat'}`;
+    }
   }
 
   private bindEvents(): void {
@@ -354,29 +633,56 @@ export class AnalyticsView {
     this.element.querySelector('#btnWeeklyReport')?.addEventListener('click', () => this.generateWeeklyReport());
     this.element.querySelector('#btnExportReport')?.addEventListener('click', () => this.exportReport());
     this.element.querySelector('#btnGenerateReport')?.addEventListener('click', () => this.generateWeeklyReport());
+    this.element.querySelector('#btnDownloadReport')?.addEventListener('click', () => this.exportReport());
     this.element.querySelector('#btnExportCertificate')?.addEventListener('click', () => this.exportCertificate());
+    this.element.querySelectorAll<HTMLButtonElement>('[data-trend-range]').forEach(button => {
+      button.addEventListener('click', () => {
+        const days = Number(button.dataset.trendRange);
+        if (!TREND_WINDOWS.includes(days as TrendWindow) || days === this.trendWindow) return;
+        this.trendWindow = days as TrendWindow;
+        this.element?.querySelectorAll<HTMLButtonElement>('[data-trend-range]').forEach(candidate => {
+          const active = Number(candidate.dataset.trendRange) === this.trendWindow;
+          candidate.classList.toggle('btn-primary', active);
+          candidate.classList.toggle('btn-secondary', !active);
+          candidate.classList.toggle('is-active', active);
+          candidate.setAttribute('aria-pressed', String(active));
+        });
+        this.renderMasteryChart();
+      });
+    });
+    this.element.querySelector<HTMLSelectElement>('#masteryTrendTopic')?.addEventListener('change', (event) => {
+      this.trendTopic = (event.target as HTMLSelectElement).value || 'all';
+      this.renderMasteryChart();
+    });
   }
 
+  /** Regenerate the Markdown report from current data, then download it. */
   private generateWeeklyReport(): void {
-    const { percent, estimatedCatScore, coveredTopics, totalTopics } = this.readiness;
-    const readinessLabel = t(`analytics.readinessLevels.${this.readiness.band}`);
-    const totalQuestions = Object.values(this.masteryStats).reduce((sum, s) => sum + s.total, 0);
-    const totalMastered = Object.values(this.masteryStats).reduce((sum, s) => sum + s.mastered, 0);
-    const perTopic = this.topics.map(topic => {
-      const level = getMasteryLevel(this.masteryStats[topic.code]?.avgMastery);
-      return `- **${topic.code}**: ${getMasteryPercent(level)}% (${getMasteryLabel(level)}) - ${this.masteryStats[topic.code]?.total ?? 0} soal`;
-    }).join('\n');
+    this.reportGeneratedAt = new Date();
+    const report = buildWeeklyReport({
+      generatedAt: this.reportGeneratedAt,
+      topics: this.topics,
+      masteryStats: this.masteryStats,
+      weights: this.weights,
+      sessions: this.reportSessions,
+      flashcardStats: this.flashcardStats,
+    });
+    this.reportMarkdown = report.markdown;
+    this.refreshReportPreview();
 
-    const report = `# Laporan Mingguan CPNS BMKG SKB Prep\n**Tanggal:** ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n\n## Ringkasan Kesiapan\n- **Kesiapan Keseluruhan:** ${percent}%\n- **Estimasi Skor Ujian:** ${estimatedCatScore}%\n- **Tingkat Kesiapan:** ${readinessLabel}\n- **Cakupan Topik:** ${coveredTopics}/${totalTopics}\n- **Streak Belajar:** ${this.streaks.current} hari (terlama ${this.streaks.longest} hari) 🔥\n- **Total Soal di Bank:** ${totalQuestions}\n- **Soal Mahir:** ${totalMastered} (${totalQuestions > 0 ? Math.round((totalMastered / totalQuestions) * 100) : 0}%)\n\n## Kemahiran per Topik\n${perTopic}\n\n## Area Lemah Prioritas\n${this.weakAreas.length === 0 ? 'Tidak ada area lemah signifikan.' : this.weakAreas.map(w => `- **${w.topicCode}**: ${w.masteryPercent}% mastery (bobot ${w.weight}x, prioritas ${w.weaknessScore.toFixed(2)})`).join('\n')}\n\n## Aktivitas Minggu Ini\n- Sesi Latihan: ${this.recentSessions.filter(s => s.mode === 'practice').length}\n- Ujian Mock: ${this.recentSessions.filter(s => s.mode === 'mock-exam').length}\n- Sesi Flashcard: ${this.recentSessions.filter(s => s.mode === 'flashcard').length}\n- Kartu Dipelajari: ${this.flashcardStats.due} kartu jatuh tempo\n\n## Rekomendasi\n${this.weakAreas.length > 0 ? `Fokus latihan pada: ${this.weakAreas.slice(0, 3).map(w => w.topicCode).join(', ')}` : 'Semua topik dalam kondisi baik. Pertimbangkan ujian mock penuh untuk validasi kesiapan.'}\n\n---\n*Dibuat otomatis oleh CPNS BMKG SKB Prep v1.0.0*`;
-
-    const blob = new Blob([report], { type: 'text/markdown' });
+    const blob = new Blob([this.reportMarkdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `weekly-report-${new Date().toISOString().split('T')[0]}.md`;
-    a.click();
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = weeklyReportFilename(this.reportGeneratedAt);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
     URL.revokeObjectURL(url);
-    showToast('Laporan mingguan diunduh', 'success');
+    showToast(
+      getLocale() === 'en' ? 'Weekly report downloaded' : 'Laporan mingguan diunduh',
+      'success'
+    );
   }
 
   private exportReport(): void { this.generateWeeklyReport(); }
@@ -416,18 +722,62 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
   }
 
   async loadData(): Promise<void> {
-    const [{ topics, defaultWeights }, masteryStats, sessions, flashcardStats] = await Promise.all([
+    const [
+      { topics, defaultWeights },
+      masteryStats,
+      sessions,
+      reportSessions,
+      flashcardStats,
+      attempts,
+      topicKeys,
+      questionIds,
+    ] = await Promise.all([
       loadKisiKisi(),
       questionsRepo.getStatsByTopic(),
       sessionsRepo.getRecent(SESSION_WINDOW),
+      sessionsRepo.getRecent(REPORT_SESSION_WINDOW),
       flashcardsRepo.getStats(),
+      // Sparse index reads keep the trend join cheap at the 1000-question envelope.
+      db.attempts.orderBy('timestamp').reverse().limit(MAX_TREND_ATTEMPTS).toArray(),
+      db.questions.orderBy('topicCode').keys(),
+      db.questions.orderBy('topicCode').primaryKeys(),
     ]);
 
     this.topics = topics.length > 0 ? topics : getKisiKisiSync();
     this.weights = { ...APP_CONFIG.defaultTopicWeights, ...defaultWeights };
     this.masteryStats = masteryStats;
     this.recentSessions = sessions;
+    this.reportSessions = reportSessions;
     this.flashcardStats = flashcardStats;
+    this.reportGeneratedAt = new Date();
+    this.reportMarkdown = buildWeeklyReport({
+      generatedAt: this.reportGeneratedAt,
+      topics: this.topics,
+      masteryStats: this.masteryStats,
+      weights: this.weights,
+      sessions: this.reportSessions,
+      flashcardStats: this.flashcardStats,
+    }).markdown;
+
+    const sessionById = new Map(sessions.map(session => [session.id, session]));
+    const topicByQuestionId = new Map(
+      questionIds.map((id, index) => [String(id), String(topicKeys[index] ?? '')])
+    );
+    this.masteryAnswers = attempts.flatMap((attempt) => {
+      const session = sessionById.get(attempt.sessionId);
+      const topicCode = topicByQuestionId.get(attempt.questionId);
+      if (!session?.startedAt || !topicCode) return [];
+      const started = new Date(session.startedAt);
+      if (!Number.isFinite(started.getTime())) return [];
+      // Group by the session's local calendar day, as the heatmap does.
+      return [{
+        questionId: attempt.questionId,
+        topicCode,
+        date: localDateKey(started),
+        isCorrect: attempt.isCorrect,
+        timestamp: attempt.timestamp,
+      }];
+    });
 
     const topicCodes = this.topics.map(topic => topic.code);
     this.readiness = calculateReadiness(topicCodes, masteryStats, this.weights);
@@ -451,12 +801,14 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
       if (this.element) {
         this.element.innerHTML = this.getHTML();
         this.bindEvents();
+        this.renderMasteryChart();
       }
     }).catch((error) => {
       console.error('AnalyticsView loadData error:', error);
       if (this.element) {
         this.element.innerHTML = this.getHTML();
         this.bindEvents();
+        this.renderMasteryChart();
       }
     });
     return this.element;
