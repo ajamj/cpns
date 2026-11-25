@@ -1073,12 +1073,31 @@ export class MockExamView {
     // candidate left it and is not mutated by browsing results.
     session.reviewIndex = 0;
     this.syncRemainingTime();
-    try {
-      await this.saveSession();
-    } catch (error) {
-      console.error('MockExamView: could not save completed session', error);
+    // Mastery is independent of session persistence: a failed session/attempt
+    // save must not silently skip the answers' effect on the mastery grid.
+    const [saved, mastery] = await Promise.allSettled([
+      this.saveSession(),
+      this.updateMasteryForAnswers(),
+    ]);
+    if (saved.status === 'rejected') {
+      console.error('MockExamView: could not save completed session', saved.reason);
+    }
+    if (mastery.status === 'rejected') {
+      console.error('MockExamView: mastery update failed', mastery.reason);
     }
     this.renderExam();
+  }
+
+  /** Feed every answered question into the shared mastery repository once. */
+  private async updateMasteryForAnswers(): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+    await questionsRepo.updateMasteryForAnswers(
+      Array.from(session.answers, ([questionId, answer]) => ({
+        questionId,
+        isCorrect: answer.isCorrect,
+      }))
+    );
   }
 
   private async saveSession(): Promise<void> {
@@ -1137,12 +1156,7 @@ export class MockExamView {
       });
     });
     if (attempts.length > 0) await attemptsRepo.bulkAdd(attempts);
-
-    // Task 8 owns mastery updates; mock answers feed the same repository.
-    await Promise.all(
-      Array.from(session.answers, ([questionId, answer]) =>
-        questionsRepo.updateMastery(questionId, answer.isCorrect))
-    );
+    // Mastery updates are handled by finishExam() via updateMasteryForAnswers().
   }
 
   /** Return from results to a fresh configuration form. */

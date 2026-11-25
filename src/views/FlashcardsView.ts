@@ -75,6 +75,15 @@ function sm2RatingForButton(quality: number): SM2Rating {
   return RATING_BY_BUTTON[quality] ?? 4;
 }
 
+/**
+ * Map an SM-2 rating onto question mastery. Good (4) and Easy (5) are
+ * successful recalls; Again (1) and Hard (3) are lapses. Manual flashcards
+ * have no questionId and are deliberately excluded from mastery updates.
+ */
+export function isCorrectRecall(rating: SM2Rating): boolean {
+  return rating === 4 || rating === 5;
+}
+
 function escapeHTML(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, char => {
     switch (char) {
@@ -382,6 +391,10 @@ export class FlashcardsView {
     try {
       const updated = reviewCard(card, rating, { params: this.sm2Params });
       await flashcardsRepo.put(updated);
+      if (card.questionId) {
+        await questionsRepo.updateMastery(card.questionId, isCorrectRecall(rating))
+          .catch(error => console.error('FlashcardsView: mastery update failed', error));
+      }
       if (this.disposed || !this.element) return;
 
       // Advance the in-memory queue only after the schedule is persisted.

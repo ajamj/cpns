@@ -594,6 +594,23 @@ export const questionsRepo = {
     }
   },
 
+  /**
+   * Apply a batch of answer outcomes (e.g. mock-exam submission). Every row is
+   * attempted even if one update fails; the first failure is rethrown after the
+   * rest have been processed so a bad row cannot skip the remaining answers.
+   */
+  async updateMasteryForAnswers(
+    answers: ReadonlyArray<{ questionId: string; isCorrect: boolean }>
+  ): Promise<void> {
+    const results = await Promise.allSettled(
+      answers.map(({ questionId, isCorrect }) => this.updateMastery(questionId, isCorrect))
+    );
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
+    );
+    if (failure) throw failure.reason;
+  },
+
   async updateMasteryLevel(questionId: string, level: MasteryLevel): Promise<void> {
     const question = await db.questions.get(questionId);
     if (!question) return;
