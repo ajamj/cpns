@@ -423,7 +423,9 @@ export const questionsRepo = {
     if (isCorrect) {
       stats.masteryLevel = Math.min(3, stats.masteryLevel + 1) as MasteryLevel;
     } else {
-      stats.masteryLevel = Math.max(1, stats.masteryLevel - 1) as MasteryLevel;
+      // Mastery is bounded at 0: a wrong answer on a new question must not
+      // promote it to "learning" (previously Math.max(1, -1) returned 1).
+      stats.masteryLevel = Math.max(0, stats.masteryLevel - 1) as MasteryLevel;
     }
     
     question.metadata.updatedAt = new Date().toISOString();

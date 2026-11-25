@@ -57,6 +57,24 @@ interface PracticeSession {
   status: 'active' | 'paused' | 'review' | 'completed';
 }
 
+/** Serializable form of the in-memory session, stored inside the Session row. */
+interface PersistedPracticeState {
+  config: PracticeConfig;
+  questionIds: string[];
+  currentIndex: number;
+  answers: Record<string, PracticeAnswer>;
+  marks: Record<string, QuestionMarks>;
+  questionStartedAt: number;
+  status: PracticeSession['status'];
+}
+
+/**
+ * Dexie stores whole objects, so the practice-only state can live alongside
+ * the generic Session fields without a schema migration. Other modes ignore
+ * the extra property.
+ */
+type PracticeSessionRecord = Session & { practiceState?: PersistedPracticeState };
+
 function escapeHTML(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, char => {
     switch (char) {
@@ -195,7 +213,7 @@ export class PracticeView {
     this.element.innerHTML = this.getSkeletonHTML();
     document.addEventListener('keydown', this.handleKeys);
 
-    void this.loadQuestions().then(() => {
+    void this.loadQuestions().then(async () => {
       if (!this.element) return;
       if (this.shouldAutoStart) {
         if (this.params.weak === 'true') {
@@ -205,6 +223,10 @@ export class PracticeView {
         }
         return;
       }
+      // Reloading on #/practice resumes the last in-flight session rather than
+      // silently discarding answers and forcing the user to reconfigure.
+      if (await this.resumeSession()) return;
+      if (!this.element) return;
       this.element.innerHTML = this.getConfigHTML();
       this.bindConfigEvents();
     }).catch(error => {
@@ -376,6 +398,7 @@ export class PracticeView {
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:var(--space-2);">
+            <button class="btn btn-ghost" id="btnExitPractice" aria-label="${t('common.cancel')}" title="${t('common.cancel')}">${t('common.cancel')}</button>
             <div class="practice-progress" role="progressbar" aria-label="${t('practice.title')}"
               aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress)}"
               style="width:200px;height:6px;background:var(--color-border);border-radius:var(--radius-full);overflow:hidden;">
@@ -551,7 +574,7 @@ export class PracticeView {
       </div>
 
       <div style="display:flex;gap:var(--space-3);justify-content:center;margin-top:var(--space-6);">
-        <a href="#/practice" class="btn btn-primary">${t('practice.title')} Lagi</a>
+        <button type="button" class="btn btn-primary" id="btnPracticeAgain">${t('practice.title')} Lagi</button>
         <a href="#/dashboard" class="btn btn-secondary">${t('nav.dashboard')}</a>
       </div>
     `;
@@ -691,7 +714,76 @@ export class PracticeView {
     });
   }
 
+  /**
+   * Mark any previous in-flight practice row as closed so a stale session is
+   * never offered for resume after the user deliberately starts a new one.
+   */
+  private async closeActiveSessions(): Promise<void> {
+    try {
+      const records = await sessionsRepo.getByMode('practice');
+      const stale = records.filter(record => !record.completedAt && record.id !== this.session?.id);
+      await Promise.all(stale.map(record => sessionsRepo.put({ ...record, completedAt: nowISO() })));
+    } catch (error) {
+      console.error('PracticeView: could not close previous session', error);
+    }
+  }
+
+  /** Restore question order, answers and flags from the last auto-saved row. */
+  private async resumeSession(): Promise<boolean> {
+    let records: PracticeSessionRecord[];
+    try {
+      records = await sessionsRepo.getByMode('practice');
+    } catch (error) {
+      console.error('PracticeView: could not load sessions for resume', error);
+      return false;
+    }
+
+    const record = records.find(candidate =>
+      !candidate.completedAt &&
+      (candidate as PracticeSessionRecord).practiceState?.questionIds?.length &&
+      (candidate as PracticeSessionRecord).practiceState?.status !== 'completed' &&
+      (candidate as PracticeSessionRecord).practiceState?.status !== 'review'
+    ) as PracticeSessionRecord | undefined;
+    const state = record?.practiceState;
+    if (!record || !state || !this.element) return false;
+
+    // A question deleted or imported away since the last save makes the old
+    // ordering unreproducible; leave that row alone and show the config form.
+    const byId = new Map(this.allQuestions.map(question => [question.id, question]));
+    const questions = state.questionIds
+      .map(id => byId.get(id))
+      .filter((question): question is Question => !!question && !question.deletedAt);
+    if (questions.length === 0 || questions.length !== state.questionIds.length) return false;
+
+    const answers = new Map<string, PracticeAnswer>();
+    Object.entries(state.answers ?? {}).forEach(([id, answer]) => {
+      if (byId.has(id)) answers.set(id, { ...answer });
+    });
+    this.marks.clear();
+    Object.entries(state.marks ?? {}).forEach(([id, marks]) => {
+      this.marks.set(id, { ...marks });
+    });
+
+    const startedAt = new Date(record.startedAt).getTime();
+    this.session = {
+      id: record.id,
+      config: { ...this.getDefaultConfig(), ...state.config },
+      questions,
+      currentIndex: Math.min(Math.max(0, Number(state.currentIndex) || 0), questions.length - 1),
+      answers,
+      startTime: Number.isFinite(startedAt) ? startedAt : Date.now(),
+      status: state.status === 'paused' ? 'active' : state.status,
+    };
+    // Time spent away from the app must not be charged to the current question.
+    this.questionStartTime = Date.now();
+    this.clearAutoAdvance();
+    this.renderSession();
+    this.startAutoSave();
+    return true;
+  }
+
   private startSession(config: PracticeConfig): void {
+    void this.closeActiveSessions();
     const questions = this.selectQuestions(config);
     if (questions.length === 0) {
       this.element!.innerHTML = `
@@ -822,6 +914,8 @@ export class PracticeView {
     this.element.querySelector('#btnPrev')?.addEventListener('click', () => this.navigate(-1));
     this.element.querySelector('#btnNext')?.addEventListener('click', () => this.navigate(1));
     this.element.querySelector('#btnFinish')?.addEventListener('click', () => this.finishSession());
+    this.element.querySelector('#btnPracticeAgain')?.addEventListener('click', () => this.showConfig());
+    this.element.querySelector('#btnExitPractice')?.addEventListener('click', () => this.exitSession());
 
     this.element.querySelector('#btnFlag')?.addEventListener('click', event => {
       const button = event.currentTarget as HTMLButtonElement;
@@ -958,10 +1052,32 @@ export class PracticeView {
   private finishSession(): void {
     if (!this.session) return;
     this.clearAutoAdvance();
-    this.session.status = 'review';
+    this.session.status = 'completed';
     this.stopAutoSave();
     void this.saveSession();
     this.renderSession();
+  }
+
+  /** Return to the configuration form (also used by "Practice Again"). */
+  private showConfig(): void {
+    this.clearAutoAdvance();
+    this.stopAutoSave();
+    this.session = null;
+    this.marks.clear();
+    if (!this.element) return;
+    this.element.innerHTML = this.getConfigHTML();
+    this.bindConfigEvents();
+  }
+
+  /** Close the current session as completed so reloads do not resume it. */
+  private exitSession(): void {
+    if (!this.session) {
+      this.showConfig();
+      return;
+    }
+    this.session.status = 'completed';
+    void this.saveSession();
+    this.showConfig();
   }
 
   private async saveSession(): Promise<void> {
@@ -1000,18 +1116,30 @@ export class PracticeView {
       filter: { topicCodes: session.config.topicCodes as TopicCode[] },
       showExplanationImmediately: session.config.showExplanationImmediately,
     };
-    const record: Session = {
+    const isFinished = session.status === 'completed' || session.status === 'review';
+    const record: PracticeSessionRecord = {
       id: session.id,
       mode: 'practice',
       startedAt: new Date(session.startTime).toISOString(),
-      completedAt: nowISO(),
+      // Only a finished session is complete; autosaves must leave the row
+      // eligible for resume after a reload.
+      completedAt: isFinished ? nowISO() : undefined,
       config,
       topicCodes: [...new Set(session.questions.map(question => question.topicCode))],
       summary,
+      practiceState: {
+        config: session.config,
+        questionIds: session.questions.map(question => question.id),
+        currentIndex: session.currentIndex,
+        answers: Object.fromEntries(session.answers),
+        marks: Object.fromEntries(this.marks),
+        questionStartedAt: this.questionStartTime,
+        status: session.status,
+      },
     };
     try {
       await sessionsRepo.put(record);
-      this.updateStreak();
+      if (isFinished) this.updateStreak();
     } catch (error) {
       console.error('PracticeView: session save failed', error);
     }
@@ -1052,6 +1180,9 @@ export class PracticeView {
   destroy(): void {
     this.clearAutoAdvance();
     this.stopAutoSave();
+    // Navigation can happen between 5-second autosaves; persist the latest
+    // state before dropping the in-memory session.
+    if (this.session?.status === 'active') void this.saveSession();
     document.removeEventListener('keydown', this.handleKeys);
     if (this.routeHandler) eventBus.off('route:changed', this.routeHandler);
     this.routeHandler = null;

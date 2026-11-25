@@ -362,3 +362,24 @@ describe('questionsRepo soft delete and trash (Task 7)', () => {
     expect(await questionsRepo.getTrashCount()).toBe(1);
   });
 });
+
+describe('questionsRepo mastery updates (phase 3 task 2)', () => {
+  it('increases mastery on a correct answer and caps at level 3', async () => {
+    await seed([makeQuestion({ statistics: { totalAttempts: 0, correctAttempts: 0, avgTimeMs: 0, masteryLevel: 2 } })]);
+
+    await questionsRepo.updateMastery('q-1', true);
+    expect((await questionsRepo.getById('q-1'))?.statistics.masteryLevel).toBe(3);
+    await questionsRepo.updateMastery('q-1', true);
+    expect((await questionsRepo.getById('q-1'))?.statistics.masteryLevel).toBe(3);
+  });
+
+  it('decreases mastery on a wrong answer and never drops below level 0', async () => {
+    await seed([makeQuestion()]);
+
+    await questionsRepo.updateMastery('q-1', false);
+    const saved = (await questionsRepo.getById('q-1'))?.statistics;
+    expect(saved?.masteryLevel).toBe(0);
+    expect(saved?.totalAttempts).toBe(1);
+    expect(saved?.correctAttempts).toBe(0);
+  });
+});
