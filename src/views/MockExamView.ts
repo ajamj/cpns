@@ -1,4 +1,6 @@
 // Mock Exam View (CAT Simulation)
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { questionsRepo, type MockExamSelectionConfig } from '../db/repositories/questions';
 import { sessionsRepo } from '../db/repositories/sessions';
 import { attemptsRepo } from '../db/repositories/attempts';
@@ -11,7 +13,7 @@ import {
 } from '../features/kisi-kisi/registry';
 import { navigate, t } from '../core/i18n';
 import { eventBus } from '../core/events';
-import { generateId, nowISO, formatTime } from '../core/utils';
+import { generateId, nowISO, formatTime, downloadJSON } from '../core/utils';
 import { APP_CONFIG } from '../core/config';
 import type {
   Attempt,
@@ -31,7 +33,7 @@ interface MockExamConfig {
   difficultyMix: Record<Difficulty, number>;
 }
 
-interface MockExamAnswer {
+export interface MockExamAnswer {
   userAnswer: number[];
   isCorrect: boolean;
   timeMs: number;
@@ -53,6 +55,8 @@ interface MockExamSession {
   endsAt: number;
   timeRemainingMs: number;
   timerId: ReturnType<typeof setInterval> | null;
+  /** Question currently shown in results review; independent of exam position. */
+  reviewIndex: number;
   status: 'config' | 'ready' | 'active' | 'paused' | 'confirming' | 'review';
 }
 
@@ -89,6 +93,61 @@ export function calculateExamScore(correctAnswers: number, totalQuestions: numbe
   return Math.round((correctAnswers / totalQuestions) * 100);
 }
 
+export interface ReviewTopicStats {
+  attempted: number;
+  correct: number;
+  scorePercent: number;
+}
+
+/** Per-topic results: only answered questions count as attempted. */
+export function getReviewTopicStats(
+  questions: ReadonlyArray<Pick<Question, 'id' | 'topicCode'>>,
+  answers: ReadonlyMap<string, { isCorrect: boolean } | undefined>
+): Record<string, ReviewTopicStats> {
+  const stats: Record<string, ReviewTopicStats> = {};
+  questions.forEach(question => {
+    const topic = stats[question.topicCode] ?? { attempted: 0, correct: 0, scorePercent: 0 };
+    stats[question.topicCode] = topic;
+    const answer = answers.get(question.id);
+    if (!answer) return;
+    topic.attempted++;
+    if (answer.isCorrect) topic.correct++;
+  });
+  Object.values(stats).forEach(topic => {
+    topic.scorePercent = calculateExamScore(topic.correct, topic.attempted);
+  });
+  return stats;
+}
+
+/** A→E option labels used in the review card and exported results. */
+export function optionLetter(index: number): string {
+  return Number.isInteger(index) && index >= 0 && index < 26 ? String.fromCharCode(65 + index) : '?';
+}
+
+export function answerLetters(indices: readonly number[] | undefined): string {
+  if (!Array.isArray(indices) || indices.length === 0) return '—';
+  return indices.map(optionLetter).join(', ');
+}
+
+/** Time spent is formatted as MM:SS (minutes may exceed 59 for long exams). */
+export function formatTimeSpent(ms: number): string {
+  return formatTime(Math.max(0, Number.isFinite(ms) ? ms : 0));
+}
+
+/** One row of the question-by-question review (also used by result export). */
+export function buildReviewAnswer(question: Question, answer: MockExamAnswer | undefined) {
+  return {
+    questionId: question.id,
+    userAnswer: answer?.userAnswer ?? [],
+    userAnswerLetters: answerLetters(answer?.userAnswer),
+    correctAnswer: question.correctAnswer ?? [],
+    correctAnswerLetters: answerLetters(question.correctAnswer),
+    isCorrect: answer?.isCorrect ?? false,
+    answered: !!answer,
+    timeMs: answer?.timeMs ?? 0,
+  };
+}
+
 /** Countdown from the absolute deadline (never from accumulated tick counts). */
 export function getRemainingMs(endsAt: number, now = Date.now()): number {
   return Math.max(0, endsAt - now);
@@ -104,6 +163,21 @@ function escapeHTML(value: unknown): string {
       default: return '&#39;';
     }
   });
+}
+
+/** Question text is user/import supplied: render Markdown but strip scripts. */
+function renderRichText(text: unknown): string {
+  const raw = String(text ?? '');
+  try {
+    const purifier = DOMPurify as unknown as { sanitize?: (value: string) => string };
+    const html = String(marked.parse(raw, { async: false, breaks: true }));
+    if (typeof purifier.sanitize === 'function') return purifier.sanitize(html);
+    const factory = DOMPurify as unknown as (win: Window) => { sanitize: (value: string) => string };
+    if (typeof factory === 'function' && typeof window !== 'undefined') return factory(window).sanitize(html);
+  } catch {
+    // Fall through to a plain, escaped rendering.
+  }
+  return escapeHTML(raw);
 }
 
 export class MockExamView {
@@ -376,109 +450,244 @@ export class MockExamView {
 
   private getReviewHTML(): string {
     const session = this.session;
-    if (!session) return '';
+    if (!session || session.questions.length === 0) return '';
     const correctCount = Array.from(session.answers.values()).filter(a => a.isCorrect).length;
     const scorePercent = calculateExamScore(correctCount, session.questions.length);
-    const totalTime = Date.now() - session.startTime;
+    const totalTime = formatTimeSpent(Date.now() - session.startTime);
+    // Keep the index in range even if a session was restored with stale state.
+    session.reviewIndex = Number.isInteger(session.reviewIndex)
+      ? Math.min(Math.max(session.reviewIndex, 0), session.questions.length - 1)
+      : 0;
 
     return `
       <div class="page-header">
         <h1 class="page-title">${t('mock.results')}</h1>
-        <p class="page-subtitle">${t('practice.score', { correct: correctCount, total: session.questions.length, percent: scorePercent })} • Waktu: ${formatTime(totalTime)}</p>
+        <p class="page-subtitle">${t('practice.score', { correct: correctCount, total: session.questions.length, percent: scorePercent })} • ${t('mock.timeAnalysis')}: ${totalTime}</p>
         ${this.autoSubmitted ? `<p class="badge badge-warning" role="status">${t('mock.autoSubmit')}</p>` : ''}
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--space-4);margin-bottom:var(--space-6);">
-        <div class="card">
+        <div class="card review-score-card">
           <div class="card-content" style="text-align:center;padding:var(--space-6);">
-            <div style="font-size:var(--text-4xl);font-weight:var(--font-bold);color:${scorePercent >= 70 ? 'var(--color-success)' : 'var(--color-primary)'};">${scorePercent}%</div>
+            <div class="review-score" style="font-size:var(--text-4xl);font-weight:var(--font-bold);color:${scorePercent >= 70 ? 'var(--color-success)' : 'var(--color-primary)'};">
+              ${scorePercent}%
+            </div>
             <div style="margin-top:var(--space-2);color:var(--color-text-muted);">${t('mock.overallScore')}</div>
             <div style="margin-top:var(--space-4);font-size:var(--text-sm);color:var(--color-text-muted);">
               Benar: <strong style="color:var(--color-success);">${correctCount}</strong> / ${session.questions.length}
             </div>
             <div style="margin-top:var(--space-1);font-size:var(--text-sm);color:var(--color-text-muted);">
-              Waktu: <strong>${formatTime(totalTime)}</strong>
+              ${t('mock.timeAnalysis')}: <strong class="review-time">${totalTime}</strong>
             </div>
           </div>
         </div>
-        <div class="card">
+        <div class="card review-topics-card">
           <div class="card-content">
             <h2 style="font-size:var(--text-lg);font-weight:var(--font-semibold);margin-bottom:var(--space-3);">${t('mock.perTopic')}</h2>
-            ${this.getPerTopicHTML()}
+            ${this.getReviewTopicHTML()}
           </div>
         </div>
       </div>
 
-      <div class="card" style="margin-bottom:var(--space-4);">
+      <div class="card review-card" id="reviewQuestionCard" data-question-index="${session.reviewIndex}" style="margin-bottom:var(--space-4);">
         <div class="card-header">
           <h2 class="card-title">${t('mock.reviewMode')}</h2>
+          <span class="badge badge-muted review-position">${session.reviewIndex + 1} / ${session.questions.length}</span>
         </div>
         <div class="card-content">
-          ${session.questions.map((q, i) => {
-            const ans = session.answers.get(q.id);
-            const isCorrect = ans?.isCorrect;
-            const userAns = ans?.userAnswer[0];
-            return `
-              <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-4);margin-bottom:var(--space-4);">
-                <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-2);">
-                  <span class="badge ${isCorrect ? 'badge-success' : 'badge-danger'}">${isCorrect ? 'Benar' : 'Salah'}</span>
-                  <span class="badge badge-difficulty-${q.difficulty}">${t('difficulty.' + q.difficulty)}</span>
-                  <span class="badge">${q.topicCode}</span>
-                  <span style="font-weight:var(--font-medium);">Soal ${i + 1}</span>
-                </div>
-                <div style="font-weight:var(--font-medium);margin-bottom:var(--space-3);">${q.stem}</div>
-                <div style="display:flex;flex-direction:column;gap:var(--space-2);margin-bottom:var(--space-3);">
-                  ${q.options.map((opt: any, oi: number) => `
-                    <div style="padding:var(--space-2);border-radius:var(--radius-md);${q.correctAnswer.includes(oi) ? 'background:var(--color-success-light);border:1px solid var(--color-success);' : userAns === oi ? 'background:var(--color-danger-light);border:1px solid var(--color-danger);' : ''}">
-                      <span style="font-weight:var(--font-bold);width:24px;display:inline-block;">${String.fromCharCode(65 + oi)}</span>
-                      ${opt.text}
-                      ${q.correctAnswer.includes(oi) ? ' <span class="badge badge-success">Kunci</span>' : ''}
-                      ${userAns === oi && !q.correctAnswer.includes(oi) ? ' <span class="badge badge-danger">Jawaban Anda</span>' : ''}
-                    </div>
-                  `).join('')}
-                </div>
-                ${q.explanation ? `
-                  <div style="padding:var(--space-3);background:var(--color-info-light);border-radius:var(--radius-md);border:1px solid var(--color-info);">
-                    <strong>${t('practice.explanation')}</strong>
-                    <div style="margin-top:var(--space-1);">${q.explanation}</div>
-                  </div>
-                ` : ''}
-              </div>
-            `;
-          }).join('')}
+          <div class="review-navigator" role="group" aria-label="${escapeHTML(t('mock.navigator'))}" style="display:flex;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-5);">
+            ${session.questions.map((_, i) => this.getReviewNavCellHTML(i)).join('')}
+          </div>
+          <div id="reviewQuestionContent">${this.getReviewQuestionHTML(session.reviewIndex)}</div>
+          <div class="review-controls" style="display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-5);border-top:1px solid var(--color-border);padding-top:var(--space-4);">
+            <button type="button" class="btn btn-secondary" id="btnReviewPrev" ${session.reviewIndex === 0 ? 'disabled aria-disabled="true"' : ''}>← ${t('common.previous')}</button>
+            <button type="button" class="btn btn-primary" id="btnReviewNext" ${session.reviewIndex === session.questions.length - 1 ? 'disabled aria-disabled="true"' : ''}>${t('common.next')} →</button>
+          </div>
         </div>
       </div>
 
-      <div style="display:flex;gap:var(--space-3);justify-content:center;margin-top:var(--space-6);">
+      <div style="display:flex;gap:var(--space-3);justify-content:center;flex-wrap:wrap;margin-top:var(--space-6);">
         <button class="btn btn-primary" id="btnReviewAgain">${t('mock.title')} Lagi</button>
+        <button class="btn btn-secondary" id="btnExportResults">${t('mock.exportResults')}</button>
         <a href="#/dashboard" class="btn btn-secondary">${t('nav.dashboard')}</a>
         <a href="#/analytics" class="btn btn-secondary">${t('nav.analytics')}</a>
       </div>
     `;
   }
 
-  private getPerTopicHTML(): string {
+  /** Attempted/correct/percentage per topic code (attempted = answered only). */
+  private getReviewTopicHTML(): string {
     const session = this.session;
     if (!session) return '';
-    const topicStats: Record<string, { total: number; correct: number }> = {};
+    const stats = getReviewTopicStats(session.questions, session.answers);
+    return Object.entries(stats).map(([code, topic]) => `
+      <div class="review-topic-row" data-topic="${escapeHTML(code)}" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-border);font-size:var(--text-sm);">
+        <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(code)};">${escapeHTML(code)}</span>
+        <span class="review-topic-detail">
+          Dijawab: <strong class="review-topic-attempted">${topic.attempted}</strong>
+          • Benar: <strong class="review-topic-correct">${topic.correct}</strong>
+          • <strong class="review-topic-score">${topic.scorePercent}%</strong>
+        </span>
+      </div>
+    `).join('');
+  }
 
-    session.questions.forEach(q => {
-      const ans = session.answers.get(q.id);
-      const stats = topicStats[q.topicCode] ?? { total: 0, correct: 0 };
-      topicStats[q.topicCode] = stats;
-      stats.total++;
-      if (ans?.isCorrect) stats.correct++;
-    });
+  /** Review navigator: correctness status per question, current one highlighted. */
+  private getReviewNavCellHTML(index: number): string {
+    const session = this.session;
+    const question = session?.questions[index];
+    if (!session || !question) return '';
+    const answer = session.answers.get(question.id);
+    const isCurrent = index === session.reviewIndex;
+    const status = !answer ? 'unanswered' : answer.isCorrect ? 'correct' : 'incorrect';
+    const label = isCurrent ? 'Sedang ditinjau' : status === 'correct' ? 'Benar' : status === 'incorrect' ? 'Salah' : 'Belum dijawab';
+    const style = isCurrent
+      ? 'background:var(--color-primary);color:var(--color-on-primary);border-color:var(--color-primary);'
+      : status === 'correct'
+        ? 'background:var(--color-success);color:var(--color-on-success);border-color:var(--color-success);'
+        : status === 'incorrect'
+          ? 'background:var(--color-danger);color:var(--color-on-danger);border-color:var(--color-danger);'
+          : 'background:var(--color-bg);color:var(--color-text-muted);border-color:var(--color-border-strong);';
+    return `<button type="button" class="review-nav-cell ${status}${isCurrent ? ' current' : ''}" data-index="${index}" data-status="${status}" aria-label="${escapeHTML(t('mock.reviewMode'))} ${index + 1}: ${label}" aria-current="${isCurrent ? 'true' : 'false'}" style="min-width:40px;min-height:40px;border:2px solid;border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:var(--font-semibold);${style}">${index + 1}</button>`;
+  }
 
-    return Object.entries(topicStats).map(([code, stats]) => {
-      const pct = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
-      return `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--color-border);">
-          <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(code)};">${code}</span>
-          <span>${stats.correct}/${stats.total} (${pct}%)</span>
+  /** One question card: stem, all options with answer keys, explanation. */
+  private getReviewQuestionHTML(index: number): string {
+    const session = this.session;
+    const question = session?.questions[index];
+    if (!session || !question) return '';
+    const answer = session.answers.get(question.id);
+    const review = buildReviewAnswer(question, answer);
+    const correctAnswer = review.correctAnswer;
+    const userAnswer = review.userAnswer;
+    const isFlagged = session.flags.has(question.id);
+    const isMarked = session.markedReview.has(question.id);
+    const resultLabel = !answer ? 'Belum dijawab' : answer.isCorrect ? 'Benar' : 'Salah';
+    const resultClass = !answer ? 'badge-muted' : answer.isCorrect ? 'badge-success' : 'badge-danger';
+
+    return `
+      <div class="review-question" data-question-index="${index}" data-result="${!answer ? 'unanswered' : answer.isCorrect ? 'correct' : 'incorrect'}">
+        <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-3);">
+          <span class="badge ${resultClass} review-result">${resultLabel}</span>
+          <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(question.topicCode)};">${escapeHTML(question.topicCode)}</span>
+          <span class="badge badge-difficulty-${question.difficulty}">${t('difficulty.' + question.difficulty)}</span>
+          ${isFlagged ? `<span class="badge badge-warning">⚑ ${t('mock.flag')}</span>` : ''}
+          ${isMarked ? `<span class="badge badge-info">★ ${t('mock.markReview')}</span>` : ''}
+          <span style="font-weight:var(--font-medium);">Soal ${index + 1} / ${session.questions.length}</span>
         </div>
-      `;
-    }).join('');
+        <div class="review-stem" style="font-weight:var(--font-medium);line-height:var(--leading-relaxed);margin-bottom:var(--space-4);">${renderRichText(question.stem)}</div>
+        <div class="review-options" style="display:flex;flex-direction:column;gap:var(--space-2);margin-bottom:var(--space-3);">
+          ${question.options.map((opt, oi) => {
+            const isCorrect = correctAnswer.includes(oi);
+            const isUserWrong = userAnswer.includes(oi) && !isCorrect;
+            const classes = ['review-option'];
+            let style = 'padding:var(--space-2);border-radius:var(--radius-md);border:1px solid var(--color-border);';
+            if (isCorrect) {
+              classes.push('correct');
+              style += 'background:var(--color-success-light);border-color:var(--color-success);';
+            }
+            if (isUserWrong) {
+              classes.push('incorrect');
+              style += 'background:var(--color-danger-light);border-color:var(--color-danger);';
+            }
+            return `
+              <div class="${classes.join(' ')}" data-option="${oi}" style="${style}">
+                <span class="review-option-letter" style="font-weight:var(--font-bold);width:24px;display:inline-block;">${optionLetter(oi)}</span>
+                <span class="review-option-text">${renderRichText(opt.text)}</span>
+                ${isCorrect ? ' <span class="badge badge-success">Kunci</span>' : ''}
+                ${isUserWrong ? ' <span class="badge badge-danger">Jawaban Anda</span>' : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+        <div class="review-answer-summary" style="font-size:var(--text-sm);color:var(--color-text-muted);margin-bottom:var(--space-3);">
+          Jawaban Anda: <strong class="review-user-answer" style="color:var(--color-danger);">${review.userAnswerLetters}</strong>
+          • Kunci: <strong class="review-correct-answer" style="color:var(--color-success);">${review.correctAnswerLetters}</strong>
+          ${answer ? ` • Waktu: <strong>${formatTimeSpent(answer.timeMs)}</strong>` : ''}
+        </div>
+        ${question.explanation ? `
+          <div class="review-explanation" style="padding:var(--space-3);background:var(--color-info-light);border-radius:var(--radius-md);border:1px solid var(--color-info);">
+            <strong>${t('practice.explanation')}</strong>
+            <div style="margin-top:var(--space-1);">${renderRichText(question.explanation)}</div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  private reviewNavigate(direction: number): void {
+    const session = this.session;
+    if (!session || session.status !== 'review' || session.questions.length === 0) return;
+    const next = session.reviewIndex + direction;
+    if (next < 0 || next >= session.questions.length) return;
+    session.reviewIndex = next;
+    this.renderReview();
+  }
+
+  private jumpToReviewQuestion(index: number): void {
+    const session = this.session;
+    if (!session || session.status !== 'review' || !Number.isInteger(index)) return;
+    if (index < 0 || index >= session.questions.length) return;
+    session.reviewIndex = index;
+    this.renderReview();
+  }
+
+  /** Re-render only the review region so the summary cards stay in place. */
+  private renderReview(): void {
+    if (!this.element || !this.session) return;
+    const card = this.element.querySelector<HTMLElement>('#reviewQuestionCard');
+    const position = this.element.querySelector<HTMLElement>('.review-position');
+    if (!card || !position) {
+      this.renderExam();
+      return;
+    }
+    const index = this.session.reviewIndex;
+    card.dataset.questionIndex = String(index);
+    position.textContent = `${index + 1} / ${this.session.questions.length}`;
+    const nav = card.querySelector<HTMLElement>('.review-navigator');
+    if (nav) nav.innerHTML = this.session.questions.map((_, i) => this.getReviewNavCellHTML(i)).join('');
+    const content = card.querySelector<HTMLElement>('#reviewQuestionContent');
+    if (content) content.innerHTML = this.getReviewQuestionHTML(index);
+    const prev = card.querySelector<HTMLButtonElement>('#btnReviewPrev');
+    const next = card.querySelector<HTMLButtonElement>('#btnReviewNext');
+    if (prev) {
+      prev.disabled = index === 0;
+      if (prev.disabled) prev.setAttribute('aria-disabled', 'true');
+      else prev.removeAttribute('aria-disabled');
+    }
+    if (next) {
+      next.disabled = index === this.session.questions.length - 1;
+      if (next.disabled) next.setAttribute('aria-disabled', 'true');
+      else next.removeAttribute('aria-disabled');
+    }
+    this.bindReviewEvents(true);
+  }
+
+  /** Download the result summary plus every question's answer and explanation. */
+  private exportResults(): void {
+    const session = this.session;
+    if (!session) return;
+    const correctCount = Array.from(session.answers.values()).filter(a => a.isCorrect).length;
+    const timeSpentMs = Math.max(0, Date.now() - session.startTime);
+    downloadJSON({
+      sessionId: session.id,
+      startedAt: new Date(session.startTime).toISOString(),
+      durationMinutes: session.config.durationMinutes,
+      totalQuestions: session.questions.length,
+      answeredQuestions: session.answers.size,
+      correctAnswers: correctCount,
+      scorePercent: calculateExamScore(correctCount, session.questions.length),
+      timeSpentMs,
+      timeSpent: formatTimeSpent(timeSpentMs),
+      perTopic: getReviewTopicStats(session.questions, session.answers),
+      questions: session.questions.map((question, index) => ({
+        number: index + 1,
+        topicCode: question.topicCode,
+        stem: question.stem,
+        ...buildReviewAnswer(question, session.answers.get(question.id)),
+        explanation: question.explanation ?? '',
+      })),
+    }, `mock-exam-results-${session.id}.json`);
   }
 
   private async selectQuestions(config: MockExamSelectionConfig): Promise<Question[]> {
@@ -506,6 +715,7 @@ export class MockExamView {
       endsAt: startedAt + durationMs,
       timeRemainingMs: durationMs,
       timerId: null,
+      reviewIndex: 0,
       status: 'active',
     };
     this.autoSubmitted = false;
@@ -708,14 +918,41 @@ export class MockExamView {
     this.element.querySelector('#btnMarkReviewExam')?.addEventListener('click', () => this.toggleMarkReview());
     this.element.querySelector('#btnSubmitExam')?.addEventListener('click', () => this.confirmSubmit());
     this.element.querySelector('#btnReviewAgain')?.addEventListener('click', () => this.showConfig());
+    this.bindReviewEvents();
 
     // Keyboard (one listener; addEventListener dedupes the same handler).
     document.addEventListener('keydown', this.handleKeys);
   }
 
+  /** Results review controls: navigator cells, prev/next, export. */
+  private bindReviewEvents(navOnly = false): void {
+    if (!this.element || !this.session) return;
+    this.element.querySelectorAll<HTMLButtonElement>('.review-nav-cell').forEach(btn => {
+      btn.addEventListener('click', () => this.jumpToReviewQuestion(Number(btn.dataset.index)));
+    });
+    // Prev/Next/Export survive a partial review re-render; rebinding them
+    // would stack duplicate handlers on every navigation step.
+    if (navOnly) return;
+    this.element.querySelector('#btnReviewPrev')?.addEventListener('click', () => this.reviewNavigate(-1));
+    this.element.querySelector('#btnReviewNext')?.addEventListener('click', () => this.reviewNavigate(1));
+    this.element.querySelector('#btnExportResults')?.addEventListener('click', () => this.exportResults());
+  }
+
   private handleKeys = (e: KeyboardEvent): void => {
-    if (!this.session || this.session.status !== 'active' || !this.element?.isConnected) return;
+    if (!this.session || !this.element?.isConnected) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    // Results review reuses the arrow keys to move between question cards.
+    if (this.session.status === 'review') {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        this.reviewNavigate(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.reviewNavigate(1);
+      }
+      return;
+    }
+    if (this.session.status !== 'active') return;
     if (e.altKey || e.ctrlKey || e.metaKey) {
       if (e.key === 'Enter') this.confirmSubmit();
       return;
@@ -832,6 +1069,9 @@ export class MockExamView {
     this.exitFullscreen();
     this.element?.removeAttribute('data-exam-active');
     session.status = 'review';
+    // Review always starts at question 1; the exam navigator stays where the
+    // candidate left it and is not mutated by browsing results.
+    session.reviewIndex = 0;
     this.syncRemainingTime();
     try {
       await this.saveSession();
