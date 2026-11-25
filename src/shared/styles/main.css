@@ -2632,6 +2632,48 @@ img {
   .mastery-trend-canvas-wrap { height: 240px; }
 }
 
+/* Mock exam scores bar chart (Phase 4, Task 4). Shares the responsive canvas
+   pattern of the mastery trend chart so it stays readable on small screens. */
+.mock-score-card {
+  margin-bottom: var(--space-4);
+  min-width: 0;
+}
+
+.mock-score-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: clamp(220px, 28vw, 300px);
+  min-width: 0;
+}
+
+.mock-score-canvas-wrap canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.mock-score-canvas-wrap canvas[hidden] {
+  display: none;
+}
+
+.mock-score-empty {
+  margin: var(--space-4) 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.mock-score-caption {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+@media (max-width: 640px) {
+  .mock-score-canvas-wrap { height: 240px; }
+}
+
 /* Print Styles */
 @media print {
   .header,

@@ -1,5 +1,7 @@
 // Analytics View — mastery dashboard, readiness score, weak areas, streak and trends.
 import {
+  BarController,
+  BarElement,
   CategoryScale,
   Chart,
   Legend,
@@ -9,6 +11,7 @@ import {
   PointElement,
   Tooltip,
   type ChartConfiguration,
+  type ChartConfigurationCustomTypesPerDataset,
 } from 'chart.js';
 import { questionsRepo } from '../db/repositories/questions';
 import { sessionsRepo } from '../db/repositories/sessions';
@@ -56,9 +59,15 @@ const DAYS_PER_WEEK = 7;
 const MAX_TREND_ATTEMPTS = 10_000;
 const TREND_WINDOWS = [30, 90] as const;
 type TrendWindow = (typeof TREND_WINDOWS)[number];
+/** Recent sessions read for the mock-exam score chart (Phase 4, Task 4). */
+const MOCK_SCORE_SESSION_WINDOW = 200;
+/** The mock-exam score chart always spans the last 30 local calendar days. */
+const MOCK_SCORE_DAYS = 30;
 
-// Tree-shaken Chart.js registration: only the pieces the line chart needs.
+// Tree-shaken Chart.js registration: only the pieces the charts need.
 Chart.register(
+  BarController,
+  BarElement,
   CategoryScale,
   LinearScale,
   LineController,
@@ -130,6 +139,8 @@ export class AnalyticsView {
   private trendWindow: TrendWindow = 30;
   private trendTopic = 'all';
   private masteryChart: Chart | null = null;
+  private mockScoreSessions: Session[] = [];
+  private mockScoreChart: Chart | null = null;
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -538,6 +549,171 @@ export class AnalyticsView {
       : `${answered} jawaban pada ${relevant.length} hari aktif · terakhir ${Number(latest ?? 0).toFixed(2)}/3 · ${direction}`;
   }
 
+  /** One point per local calendar day; null means no mock exam that day. */
+  private getMockScorePoints(): Array<{ date: string; score: number | null; count: number }> {
+    const now = new Date();
+    const firstDay = new Date(
+      now.getFullYear(), now.getMonth(), now.getDate() - (MOCK_SCORE_DAYS - 1)
+    );
+    const scoresByDate = new Map<string, number[]>();
+
+    for (const session of this.mockScoreSessions) {
+      if (session.mode !== 'mock-exam' || !session.startedAt || !session.summary) continue;
+      const started = new Date(session.startedAt);
+      const score = session.summary.scorePercent;
+      if (!Number.isFinite(started.getTime()) || !Number.isFinite(score)) continue;
+      const values = scoresByDate.get(localDateKey(started)) ?? [];
+      values.push(Math.min(100, Math.max(0, score)));
+      scoresByDate.set(localDateKey(started), values);
+    }
+
+    return Array.from({ length: MOCK_SCORE_DAYS }, (_, index) => {
+      const date = new Date(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate() + index);
+      const key = localDateKey(date);
+      const values = scoresByDate.get(key) ?? [];
+      const average = values.length > 0
+        ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1))
+        : null;
+      return { date: key, score: average, count: values.length };
+    });
+  }
+
+  private getMockScoreChartHTML(): string {
+    const isEnglish = getLocale() === 'en';
+    return `
+      <section class="card mock-score-card" aria-labelledby="mockScoreTitle">
+        <div class="card-header">
+          <h2 class="card-title" id="mockScoreTitle">${isEnglish ? 'Mock Exam Scores per Day' : 'Skor Ujian Mock per Hari'}</h2>
+          <span class="badge badge-danger">${MOCK_SCORE_DAYS} ${isEnglish ? 'days' : 'hari'}</span>
+        </div>
+        <div class="card-content">
+          <div class="mock-score-canvas-wrap">
+            <canvas id="mockExamScoresChart" role="img"
+              aria-label="${isEnglish ? 'Bar chart of average mock exam score (0-100) per day over the last 30 days' : 'Grafik batang rata-rata skor ujian mock (0-100) per hari pada 30 hari terakhir'}">
+              ${isEnglish ? 'Mock exam score chart' : 'Grafik skor ujian mock'}
+            </canvas>
+          </div>
+          <p class="mock-score-empty" id="mockExamScoresEmpty" hidden>
+            ${isEnglish ? 'No mock exams in this period yet. Complete a mock exam to see your scores.' : 'Belum ada ujian mock pada periode ini. Selesaikan ujian mock untuk melihat skor Anda.'}
+          </p>
+          <p class="mock-score-caption" id="mockExamScoresSummary" aria-live="polite"></p>
+        </div>
+      </section>
+    `;
+  }
+
+  /** Build (or rebuild) the mixed bar + trendline chart for mock exam scores. */
+  private renderMockScoreChart(): void {
+    const canvas = this.element?.querySelector<HTMLCanvasElement>('#mockExamScoresChart');
+    const empty = this.element?.querySelector<HTMLElement>('#mockExamScoresEmpty');
+    const summary = this.element?.querySelector<HTMLElement>('#mockExamScoresSummary');
+    if (!canvas || !empty || !summary) return;
+
+    this.mockScoreChart?.destroy();
+    this.mockScoreChart = null;
+
+    const isEnglish = getLocale() === 'en';
+    const points = this.getMockScorePoints();
+    const trend = calculateTrendLine(points.map(point => point.score));
+    const active = points.filter(point => point.score !== null);
+
+    if (active.length === 0) {
+      empty.hidden = false;
+      canvas.hidden = true;
+      summary.textContent = isEnglish
+        ? 'No mock exam scores in the last 30 days.'
+        : 'Belum ada skor ujian mock dalam 30 hari terakhir.';
+      return;
+    }
+    empty.hidden = true;
+    canvas.hidden = false;
+
+    const locale = isEnglish ? 'en-US' : 'id-ID';
+    const labels = points.map(point =>
+      new Date(`${point.date}T12:00:00`).toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+    );
+    const trendData: (number | null)[] = new Array(points.length).fill(null);
+    if (trend) {
+      trendData[0] = trend.start;
+      if (points.length > 1) trendData[points.length - 1] = trend.end;
+    }
+
+    const config: ChartConfigurationCustomTypesPerDataset<'bar' | 'line', (number | null)[], string> = {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: 'bar',
+            label: isEnglish ? 'Average score' : 'Rata-rata skor',
+            data: points.map(point => point.score),
+            backgroundColor: 'rgba(30, 58, 95, 0.78)',
+            hoverBackgroundColor: '#1e3a5f',
+            borderRadius: 4,
+            maxBarThickness: 18,
+          },
+          {
+            type: 'line',
+            label: isEnglish ? 'Trend' : 'Tren',
+            data: trendData,
+            borderColor: '#0e7490',
+            backgroundColor: '#0e7490',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            spanGaps: true,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          y: {
+            min: 0,
+            max: 100,
+            ticks: {
+              stepSize: 25,
+              color: '#55657a',
+              callback: value => `${value}%`,
+            },
+            grid: { color: '#e2e8f0' },
+          },
+          x: {
+            ticks: { color: '#55657a', maxTicksLimit: 10, autoSkip: true },
+            grid: { display: false },
+          },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#0f172a', boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              title: items => points[items[0]?.dataIndex ?? 0]?.date ?? '',
+              label: item => {
+                const count = points[item.dataIndex]?.count ?? 0;
+                const suffix = count > 1 ? ` (${count} ${isEnglish ? 'exams' : 'ujian'})` : '';
+                return `${item.dataset.label}: ${Number(item.parsed.y)}%${suffix}`;
+              },
+            },
+          },
+        },
+      },
+    };
+
+    this.mockScoreChart = new Chart(canvas, config);
+
+    const exams = active.reduce((sum, point) => sum + point.count, 0);
+    const average = Math.round(active.reduce((sum, point) => sum + (point.score ?? 0), 0) / active.length);
+    const latest = active[active.length - 1]?.score ?? 0;
+    const direction = trend && Math.abs(trend.slope) >= 0.1
+      ? (trend.slope > 0 ? (isEnglish ? 'improving' : 'meningkat') : (isEnglish ? 'declining' : 'menurun'))
+      : (isEnglish ? 'stable' : 'stabil');
+    summary.textContent = isEnglish
+      ? `${exams} mock exams on ${active.length} active days · average ${average}% · latest ${latest}% · ${direction}`
+      : `${exams} ujian mock pada ${active.length} hari aktif · rata-rata ${average}% · terakhir ${latest}% · ${direction}`;
+  }
+
   private getHTML(): string {
     return `
       <div class="page-header">
@@ -550,6 +726,7 @@ export class AnalyticsView {
       </div>
       ${this.getReadinessHTML()}
       ${this.getMasteryTrendHTML()}
+      ${this.getMockScoreChartHTML()}
       ${this.getStatsHTML()}
       <section class="card streak-heatmap-card">
         <div class="card-header"><h2 class="card-title">${t('analytics.heatmap')}</h2><span class="badge badge-warning">🔥 ${this.streaks.current} ${getLocale() === 'en' ? 'days' : 'hari'}</span></div>
@@ -727,6 +904,7 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
       masteryStats,
       sessions,
       reportSessions,
+      mockScoreSessions,
       flashcardStats,
       attempts,
       topicKeys,
@@ -736,6 +914,7 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
       questionsRepo.getStatsByTopic(),
       sessionsRepo.getRecent(SESSION_WINDOW),
       sessionsRepo.getRecent(REPORT_SESSION_WINDOW),
+      sessionsRepo.getRecent(MOCK_SCORE_SESSION_WINDOW),
       flashcardsRepo.getStats(),
       // Sparse index reads keep the trend join cheap at the 1000-question envelope.
       db.attempts.orderBy('timestamp').reverse().limit(MAX_TREND_ATTEMPTS).toArray(),
@@ -748,6 +927,7 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
     this.masteryStats = masteryStats;
     this.recentSessions = sessions;
     this.reportSessions = reportSessions;
+    this.mockScoreSessions = mockScoreSessions;
     this.flashcardStats = flashcardStats;
     this.reportGeneratedAt = new Date();
     this.reportMarkdown = buildWeeklyReport({
@@ -802,6 +982,7 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
         this.element.innerHTML = this.getHTML();
         this.bindEvents();
         this.renderMasteryChart();
+        this.renderMockScoreChart();
       }
     }).catch((error) => {
       console.error('AnalyticsView loadData error:', error);
@@ -809,6 +990,7 @@ h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
         this.element.innerHTML = this.getHTML();
         this.bindEvents();
         this.renderMasteryChart();
+        this.renderMockScoreChart();
       }
     });
     return this.element;
