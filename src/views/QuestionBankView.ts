@@ -27,6 +27,7 @@ import {
   type QuestionFormField,
 } from '../features/questions/question-form';
 import { navigate, t } from '../core/i18n';
+import { emitQuestionBulkUpdated } from '../core/events';
 import { navigateToHash } from '../core/router';
 import { generateId, nowISO, downloadJSON } from '../core/utils';
 import { memoizeSelector, showProgressToast, showToast } from '../core/app-utils';
@@ -510,6 +511,7 @@ export class QuestionBankView {
             <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkFlag" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.flag')}</button>
             <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkUnflag" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.unflag')}</button>
             <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkReview" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.bulkNeedsReview')}</button>
+            <button type="button" class="btn btn-secondary btn-sm bulk-action-button" id="btnBulkUnreview" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.bulkUnreview')}</button>
             <button type="button" class="btn btn-danger btn-sm bulk-action-button" id="btnBulkDelete" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('common.delete')}</button>
             <button type="button" class="btn btn-ghost btn-sm" id="btnClearSelection" ${this.bulkOperationInProgress ? 'disabled' : ''}>${t('qb.deselectAll')}</button>
           </div>
@@ -832,6 +834,7 @@ export class QuestionBankView {
           case 'btnBulkFlag': void this.bulkFlag(); break;
           case 'btnBulkUnflag': void this.bulkUnflag(); break;
           case 'btnBulkReview': void this.bulkReview(); break;
+          case 'btnBulkUnreview': void this.bulkUnreview(); break;
           case 'btnBulkDelete': void this.bulkDelete(); break;
           case 'btnClearSelection':
             this.selectedIds.clear();
@@ -1562,13 +1565,16 @@ export class QuestionBankView {
     let processed = 0;
     let succeeded = 0;
     let failed = 0;
+    const updated: Question[] = [];
 
     try {
       for (const id of ids) {
         try {
           const question = await questionsRepo.getById(id);
           if (question && !question.deletedAt) {
-            await questionsRepo.put(applyBulkUpdate(question, update));
+            const next = applyBulkUpdate(question, update);
+            await questionsRepo.put(next);
+            updated.push(next);
             succeeded++;
           } else {
             failed++;
@@ -1580,6 +1586,10 @@ export class QuestionBankView {
         progress.update(processed, ids.length, this.progressLabel(processed, ids.length));
         if (processed % 20 === 0) await this.yieldToUI();
       }
+
+      // One notification for the whole batch, so listeners do not have to
+      // reconstruct a bulk edit from N individual question:updated events.
+      if (updated.length > 0) emitQuestionBulkUpdated(updated);
 
       if (failed === 0) {
         progress.finish(t('qb.bulkCompleted', { count: succeeded }), 'success');
@@ -1690,6 +1700,14 @@ export class QuestionBankView {
     await this.applyBulkUpdateToSelection({
       kind: 'flags',
       patch: { needsReview: true },
+    });
+  }
+
+  /** Symmetric counterpart to bulkReview: clears only needsReview. */
+  private async bulkUnreview(): Promise<void> {
+    await this.applyBulkUpdateToSelection({
+      kind: 'flags',
+      patch: { needsReview: false },
     });
   }
 
@@ -1806,7 +1824,14 @@ export class QuestionBankView {
         progress.update(done, ids.length, this.progressLabel(done, ids.length));
         await this.yieldToUI();
       }
-      progress.finish(t('qb.bulkCompleted', { count: deleted }), 'success');
+      const failed = ids.length - deleted;
+      if (failed === 0) {
+        progress.finish(t('qb.bulkCompleted', { count: deleted }), 'success');
+      } else if (deleted > 0) {
+        progress.finish(t('qb.bulkPartial', { done: deleted, failed }), 'warning');
+      } else {
+        progress.finish(t('qb.bulkFailed', { failed }), 'error');
+      }
     } catch (error) {
       progress.finish(t('error.deleteFailed', { error: String(error) }), 'error');
     } finally {

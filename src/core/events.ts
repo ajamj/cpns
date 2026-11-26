@@ -59,6 +59,11 @@ export function emitQuestionDeleted(id: string): void {
   eventBus.emit('question:deleted', id);
 }
 
+/** One event per completed bulk edit, carrying the whole updated batch. */
+export function emitQuestionBulkUpdated(questions: Question[]): void {
+  eventBus.emit('question:bulkUpdated', questions);
+}
+
 export function emitSessionCompleted(session: Session): void {
   eventBus.emit('session:completed', session);
 }

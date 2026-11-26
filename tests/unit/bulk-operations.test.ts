@@ -12,6 +12,7 @@ import {
   mergeTags,
   questionsToCSV,
 } from '../../src/features/questions/bulk-operations';
+import { eventBus, emitQuestionBulkUpdated } from '../../src/core/events';
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
   return {
@@ -59,6 +60,14 @@ describe('bulk flag transforms', () => {
     );
     expect(flags).toEqual({ bookmarked: false, needsReview: false, disputed: true });
   });
+
+  it('clears needsReview without touching bookmark or disputed', () => {
+    const flags = applyFlagPatch(
+      { bookmarked: true, needsReview: true, disputed: true },
+      { needsReview: false }
+    );
+    expect(flags).toEqual({ bookmarked: true, needsReview: false, disputed: true });
+  });
 });
 
 describe('applyBulkUpdate', () => {
@@ -94,5 +103,22 @@ describe('questionsToCSV', () => {
     expect(lines[0]).toContain('optionA,optionB');
     expect(lines[1]).toContain('"Bandung, Jawa Barat"');
     expect(lines[1]).toContain(',,,'); // unused options D/E stay empty
+  });
+});
+
+describe('bulk completion event', () => {
+  it('emits one question:bulkUpdated event with the whole batch', () => {
+    const batches: Question[][] = [];
+    const listener = (questions: Question[]): void => { batches.push(questions); };
+    eventBus.on('question:bulkUpdated', listener);
+    try {
+      const questions = [makeQuestion(), makeQuestion({ id: 'q-2' })];
+      emitQuestionBulkUpdated(questions);
+      expect(batches).toHaveLength(1);
+      expect(batches[0]).toBe(questions);
+      expect(batches[0]?.map(q => q.id)).toEqual(['q-1', 'q-2']);
+    } finally {
+      eventBus.off('question:bulkUpdated', listener);
+    }
   });
 });
