@@ -11,7 +11,7 @@ import type {
   Difficulty,
 } from '../../shared/types';
 import { eventBus, emitQuestionCreated, emitQuestionUpdated, emitQuestionDeleted, emitMasteryUpdated } from '../../core/events';
-import { generateId, nowISO } from '../../core/utils';
+import { generateId, nowISO, toCSV } from '../../core/utils';
 import { APP_CONFIG } from '../../core/config';
 import { stemSimilarity, SMART_SIMILARITY_THRESHOLD, type MergeStrategy } from '../../features/import-export/merge';
 
@@ -274,6 +274,53 @@ function isImportable(q: Question): q is Question {
   return !!q && typeof q.id === 'string' && q.id.length > 0 &&
     typeof q.stem === 'string' && q.stem.trim().length > 0 &&
     Array.isArray(q.options) && q.options.length > 0;
+}
+
+/**
+ * Analytics CSV for questions (Phase 4, Task 8). This is deliberately a
+ * different shape from the Phase 2 import-compatible CSV in `bulk-operations`:
+ * it also carries creation/version metadata and every stored statistic so the
+ * file can be analysed in a spreadsheet. `toCSV` quotes commas, quotes and
+ * newlines, which Markdown stems regularly contain.
+ */
+export function questionsToExportCSV(questions: readonly Question[]): string {
+  const rows: string[][] = [[
+    'id', 'topicCode', 'stem', 'optionA', 'optionB', 'optionC', 'optionD', 'optionE',
+    'correctAnswer', 'explanation', 'difficulty', 'source', 'tags',
+    'metadata.createdAt', 'metadata.version',
+    'statistics.totalAttempts', 'statistics.correctAttempts', 'statistics.avgTimeMs',
+    'statistics.lastAttemptedAt', 'statistics.masteryLevel',
+  ]];
+
+  for (const q of questions) {
+    const options = (q.options ?? []).map(option => option?.text ?? '');
+    while (options.length < 5) options.push('');
+    const stats = q.statistics;
+    rows.push([
+      q.id,
+      q.topicCode,
+      q.stem ?? '',
+      options[0] ?? '',
+      options[1] ?? '',
+      options[2] ?? '',
+      options[3] ?? '',
+      options[4] ?? '',
+      (q.correctAnswer ?? []).map(index => String.fromCharCode(65 + index)).join(';'),
+      q.explanation ?? '',
+      String(q.difficulty ?? ''),
+      q.source ?? '',
+      (q.tags ?? []).join(';'),
+      q.metadata?.createdAt ?? '',
+      String(q.metadata?.version ?? ''),
+      String(stats?.totalAttempts ?? 0),
+      String(stats?.correctAttempts ?? 0),
+      String(stats?.avgTimeMs ?? 0),
+      stats?.lastAttemptedAt ?? '',
+      String(stats?.masteryLevel ?? 0),
+    ]);
+  }
+
+  return toCSV(rows);
 }
 
 export const questionsRepo = {
@@ -709,6 +756,11 @@ export const questionsRepo = {
 
   async exportAll(): Promise<Question[]> {
     return db.questions.toArray();
+  },
+
+  /** Analytics CSV of every non-deleted question (soft-deleted rows stay hidden). */
+  async exportCSV(): Promise<string> {
+    return questionsToExportCSV(await this.getAll());
   },
 
   /** Uncapped export of every non-deleted question matching the filter. */

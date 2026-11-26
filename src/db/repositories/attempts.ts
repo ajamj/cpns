@@ -1,8 +1,38 @@
 // Attempts Repository
 import { db } from '../schema';
 import type { Attempt } from '../../shared/types';
+import { toCSV } from '../../core/utils';
+
+/** Attempts CSV for analytics exports (Phase 4, Task 8). */
+export function attemptsToCSV(attempts: readonly Attempt[]): string {
+  const rows: string[][] = [[
+    'sessionId', 'questionId', 'userAnswer', 'isCorrect', 'timeMs', 'timestamp',
+  ]];
+
+  for (const a of attempts) {
+    rows.push([
+      a.sessionId,
+      a.questionId,
+      (a.userAnswer ?? []).map(index => String.fromCharCode(65 + index)).join(';'),
+      String(Boolean(a.isCorrect)),
+      String(a.timeMs),
+      a.timestamp,
+    ]);
+  }
+
+  return toCSV(rows);
+}
 
 export const attemptsRepo = {
+  async getAll(): Promise<Attempt[]> {
+    return db.attempts.toArray();
+  },
+
+  /** Analytics CSV of every recorded answer attempt. */
+  async exportCSV(): Promise<string> {
+    return attemptsToCSV(await this.getAll());
+  },
+
   async add(attempt: Attempt): Promise<void> {
     await db.attempts.add(attempt);
   },

@@ -1,6 +1,43 @@
 // Sessions Repository
 import { db } from '../schema';
 import type { Session, SessionConfig, SessionSummary } from '../../shared/types';
+import { toCSV } from '../../core/utils';
+
+/**
+ * Sessions CSV for analytics exports (Phase 4, Task 8). `duration` is the
+ * recorded time spent in milliseconds; for an unfinished session with no
+ * summary it falls back to completedAt - startedAt, or 0 when still unknown.
+ */
+export function sessionsToCSV(sessions: readonly Session[]): string {
+  const rows: string[][] = [[
+    'id', 'mode', 'startedAt', 'completedAt', 'duration',
+    'totalQuestions', 'correctAnswers', 'scorePercent', 'topicCodes',
+  ]];
+
+  for (const s of sessions) {
+    const summary = s.summary;
+    const started = new Date(s.startedAt).getTime();
+    const completed = s.completedAt ? new Date(s.completedAt).getTime() : NaN;
+    const elapsed = Number.isFinite(started) && Number.isFinite(completed)
+      ? Math.max(0, completed - started)
+      : 0;
+    const duration = summary?.timeSpentMs ?? elapsed;
+
+    rows.push([
+      s.id,
+      s.mode,
+      s.startedAt,
+      s.completedAt ?? '',
+      String(Math.round(duration)),
+      String(summary?.totalQuestions ?? 0),
+      String(summary?.correctAnswers ?? 0),
+      String(summary?.scorePercent ?? 0),
+      (s.topicCodes ?? []).join(';'),
+    ]);
+  }
+
+  return toCSV(rows);
+}
 
 export const sessionsRepo = {
   async getAll(): Promise<Session[]> {
@@ -9,6 +46,11 @@ export const sessionsRepo = {
 
   async getById(id: string): Promise<Session | undefined> {
     return db.sessions.get(id);
+  },
+
+  /** Analytics CSV of all sessions, newest first. */
+  async exportCSV(): Promise<string> {
+    return sessionsToCSV(await this.getAll());
   },
 
   async add(session: Session): Promise<string> {

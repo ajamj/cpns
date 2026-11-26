@@ -2,6 +2,32 @@
 import { db } from '../schema';
 import type { Flashcard, SM2Params } from '../../shared/types';
 import { reviewCard, sortByDueDate, type SM2Options, type SM2Rating } from '../../features/flashcards/sm2';
+import { toCSV } from '../../core/utils';
+
+/** Flashcards CSV for analytics exports (Phase 4, Task 8). */
+export function flashcardsToCSV(cards: readonly Flashcard[]): string {
+  const rows: string[][] = [[
+    'id', 'questionId', 'front', 'back', 'type',
+    'dueDate', 'interval', 'easeFactor', 'reps', 'lapses',
+  ]];
+
+  for (const c of cards) {
+    rows.push([
+      c.id,
+      c.questionId ?? '',
+      c.front ?? '',
+      c.back ?? '',
+      c.type,
+      c.dueDate,
+      String(c.interval),
+      String(c.easeFactor),
+      String(c.reps),
+      String(c.lapses),
+    ]);
+  }
+
+  return toCSV(rows);
+}
 
 export const flashcardsRepo = {
   async getAll(): Promise<Flashcard[]> {
@@ -10,6 +36,11 @@ export const flashcardsRepo = {
 
   async getById(id: string): Promise<Flashcard | undefined> {
     return db.flashcards.get(id);
+  },
+
+  /** Analytics CSV of every flashcard, due-date order. */
+  async exportCSV(): Promise<string> {
+    return flashcardsToCSV(await this.getAll());
   },
 
   async add(card: Flashcard): Promise<string> {
