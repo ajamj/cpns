@@ -172,6 +172,19 @@ export function formatTimeSpent(ms: number): string {
   return formatTime(Math.max(0, Number.isFinite(ms) ? ms : 0));
 }
 
+/**
+ * Build one mastery update per answered question in a finished exam.
+ * Unanswered questions carry no outcome and must not affect mastery.
+ */
+export function masteryUpdatesFromAnswers(
+  answers: ReadonlyMap<string, { isCorrect: boolean }>
+): Array<{ questionId: string; isCorrect: boolean }> {
+  return Array.from(answers, ([questionId, answer]) => ({
+    questionId,
+    isCorrect: answer.isCorrect,
+  }));
+}
+
 /** One row of the question-by-question review (also used by result export). */
 export function buildReviewAnswer(question: Question, answer: MockExamAnswer | undefined) {
   return {
@@ -1148,12 +1161,7 @@ export class MockExamView {
   private async updateMasteryForAnswers(): Promise<void> {
     const session = this.session;
     if (!session) return;
-    await questionsRepo.updateMasteryForAnswers(
-      Array.from(session.answers, ([questionId, answer]) => ({
-        questionId,
-        isCorrect: answer.isCorrect,
-      }))
-    );
+    await questionsRepo.updateMasteryForAnswers(masteryUpdatesFromAnswers(session.answers));
   }
 
   private async saveSession(): Promise<void> {

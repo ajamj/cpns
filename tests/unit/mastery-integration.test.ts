@@ -24,16 +24,40 @@ vi.mock('../../src/db/schema', () => ({
 }));
 
 import { questionsRepo } from '../../src/db/repositories/questions';
-import { isCorrectRecall } from '../../src/views/FlashcardsView';
+import { isCorrectRecall, sm2RatingForButton } from '../../src/views/FlashcardsView';
+import { masteryUpdatesFromAnswers } from '../../src/views/MockExamView';
 
 describe('flashcard rating to mastery mapping', () => {
   it('counts Good/Easy as correct and Again/Hard as incorrect', () => {
     // Visible buttons: Again(1), Hard(2), Good(3), Easy(4). The SM-2 engine
-    // stores them as quality 1, 3, 4 and 5 respectively.
+    // stores them as quality 1, 2, 4 and 5 respectively.
     expect(isCorrectRecall(1)).toBe(false); // Again
-    expect(isCorrectRecall(3)).toBe(false); // Hard
+    expect(isCorrectRecall(2)).toBe(false); // Hard
+    expect(isCorrectRecall(3)).toBe(false); // unassigned lapse rating
     expect(isCorrectRecall(4)).toBe(true); // Good
     expect(isCorrectRecall(5)).toBe(true); // Easy
+  });
+
+  it('maps the four rating buttons to mastery outcomes', () => {
+    const outcomes = [0, 1, 2, 3].map(button => isCorrectRecall(sm2RatingForButton(button)));
+    expect(outcomes).toEqual([false, false, true, true]);
+  });
+});
+
+describe('mock exam answers to mastery mapping', () => {
+  it('emits one update per answered question, preserving correctness', () => {
+    const answers = new Map([
+      ['q-correct', { isCorrect: true }],
+      ['q-wrong', { isCorrect: false }],
+    ]);
+    expect(masteryUpdatesFromAnswers(answers)).toEqual([
+      { questionId: 'q-correct', isCorrect: true },
+      { questionId: 'q-wrong', isCorrect: false },
+    ]);
+  });
+
+  it('emits nothing when no question was answered', () => {
+    expect(masteryUpdatesFromAnswers(new Map())).toEqual([]);
   });
 });
 

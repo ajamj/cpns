@@ -68,7 +68,7 @@ const RATING_BUTTONS = [
   },
 ] as const;
 
-function sm2RatingForButton(quality: number): SM2Rating {
+export function sm2RatingForButton(quality: number): SM2Rating {
   if (!Number.isInteger(quality) || quality < 0 || quality >= RATING_BY_BUTTON.length) {
     return 4;
   }
