@@ -227,10 +227,11 @@ function appendVersionSnapshot(next: Question, previous?: Question): void {
 }
 
 /**
- * Every persisted edit follows one rule: version = previous version + 1, and
- * the pre-edit row becomes the newest snapshot (capped at 5). Callers may send
- * an already-incremented version (the form does); we accept it only when it is
- * exactly the expected value so bulk/import paths cannot skip or duplicate it.
+ * Every persisted edit follows one rule: version = previous version + 1, the
+ * pre-edit row becomes the newest snapshot (capped at 5), and updatedAt records
+ * the write. Callers may precompute the version (form/bulk/import paths do),
+ * but it is always normalized to the expected value so no path can skip or
+ * duplicate a version or carry a stale timestamp into the history list.
  */
 function prepareVersionedUpdate(next: Question, previous?: Question): void {
   if (!previous) return;
@@ -239,16 +240,13 @@ function prepareVersionedUpdate(next: Question, previous?: Question): void {
     next.versions = previous.versions.map(cloneQuestion);
   }
   const previousVersion = previous.metadata?.version ?? 0;
-  const incomingVersion = next.metadata?.version ?? 0;
-  if (incomingVersion !== previousVersion + 1) {
-    next.metadata = {
-      ...next.metadata,
-      createdAt: next.metadata?.createdAt ?? previous.metadata?.createdAt ?? nowISO(),
-      updatedAt: nowISO(),
-      author: next.metadata?.author ?? previous.metadata?.author ?? 'user',
-      version: previousVersion + 1,
-    };
-  }
+  next.metadata = {
+    ...next.metadata,
+    createdAt: next.metadata?.createdAt ?? previous.metadata?.createdAt ?? nowISO(),
+    author: next.metadata?.author ?? previous.metadata?.author ?? 'user',
+    version: previousVersion + 1,
+    updatedAt: nowISO(),
+  };
   appendVersionSnapshot(next, previous);
 }
 
@@ -354,7 +352,11 @@ export const questionsRepo = {
   async getVersions(id: string): Promise<Question[]> {
     const question = await db.questions.get(id);
     if (!question || !Array.isArray(question.versions)) return [];
-    return question.versions.map(cloneQuestion);
+    // Imported banks may carry an unsorted history; preserve the UI contract
+    // of newest first regardless of how the stored array was assembled.
+    return question.versions
+      .map(cloneQuestion)
+      .sort((a, b) => (b.metadata?.version ?? 0) - (a.metadata?.version ?? 0));
   },
 
   /**

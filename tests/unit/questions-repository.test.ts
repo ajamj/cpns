@@ -244,6 +244,70 @@ describe('questionsRepo version history', () => {
     expect((await questionsRepo.getById('q-1'))?.stem).toBe('Revision 2');
     expect(await questionsRepo.restoreVersion('missing', 1)).toBeUndefined();
   });
+
+  it('getVersions sorts an imported, unordered history newest-first', async () => {
+    const base = makeQuestion();
+    const snapshot = (version: number, stem: string): Question => ({
+      ...base,
+      stem,
+      metadata: { ...base.metadata, version },
+    });
+    await seed([makeQuestion({
+      metadata: { ...base.metadata, version: 4 },
+      versions: [snapshot(2, 'Older'), snapshot(4, 'Latest'), snapshot(3, 'Middle')],
+    })]);
+
+    expect((await questionsRepo.getVersions('q-1')).map(v => v.stem)).toEqual([
+      'Latest', 'Middle', 'Older',
+    ]);
+  });
+
+  it('snapshots retain the full question without nesting history or delete state', async () => {
+    const original = makeQuestion({
+      explanation: 'Penjelasan lengkap',
+      flags: { bookmarked: true, needsReview: false, disputed: true },
+      statistics: { totalAttempts: 5, correctAttempts: 3, avgTimeMs: 1200, masteryLevel: 2 },
+      tags: ['cuaca', 'bmkg'],
+    });
+    await seed([original]);
+    await questionsRepo.put(makeQuestion({
+      stem: 'Edited stem',
+      metadata: { ...original.metadata, version: 2 },
+    }));
+
+    const [snapshot] = await questionsRepo.getVersions('q-1');
+    expect(snapshot).toMatchObject({
+      stem: original.stem,
+      options: original.options,
+      correctAnswer: original.correctAnswer,
+      explanation: original.explanation,
+      difficulty: original.difficulty,
+      source: original.source,
+      tags: original.tags,
+      flags: original.flags,
+      statistics: original.statistics,
+      metadata: { version: 1 },
+    });
+    expect(snapshot?.versions).toBeUndefined();
+    expect(snapshot?.deletedAt).toBeUndefined();
+  });
+
+  it('normalizes version and updatedAt even when the caller supplies the expected version', async () => {
+    const original = makeQuestion();
+    await seed([original]);
+    const stale = '2020-01-01T00:00:00.000Z';
+
+    await questionsRepo.put(makeQuestion({
+      stem: 'Stale metadata edit',
+      metadata: { ...original.metadata, version: 2, updatedAt: stale },
+    }));
+
+    const saved = await questionsRepo.getById('q-1');
+    expect(saved?.metadata.version).toBe(2);
+    expect(saved?.metadata.updatedAt).not.toBe(stale);
+    expect(Date.parse(saved!.metadata.updatedAt)).toBeGreaterThan(Date.parse(stale));
+    expect(saved?.versions?.[0]?.stem).toBe(original.stem);
+  });
 });
 
 describe('questionsRepo import/export', () => {
