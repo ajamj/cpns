@@ -96,10 +96,31 @@ export function literalMatchScore(question: SearchableQuestion, needle: string):
   return best * Math.max(0.8, 1 - 0.05 * (matches - 1));
 }
 
+/** Tokens shorter than Fuse's `minMatchCharLength` cannot form a match. */
+function searchTokens(needle: string): string[] {
+  return needle.split(/\s+/).filter(token => token.length >= 2);
+}
+
+/**
+ * Multi-word queries usually span fields ("siklon" in the stem, "tropis" in
+ * the explanation). Every token must match; the combined score is the mean of
+ * its weighted per-field scores so a stronger field still wins the tie.
+ */
+function multiTokenScore(question: SearchableQuestion, tokens: string[]): number | null {
+  let total = 0;
+  for (const token of tokens) {
+    const score = literalMatchScore(question, token);
+    if (score === null) return null;
+    total += score;
+  }
+  return total / tokens.length;
+}
+
 /**
  * Rank all questions matching `query`, returning id → relevance score.
  * Literal hits bypass Fuse (performance); the fuzzy pass is the fallback for
- * typos and near-misses. `null` means "no query", not "no results".
+ * typos and near-misses. `null` means "no query / query too short", not "no
+ * results" (an empty map means no matches).
  */
 export function rankQuestionMatches<T extends SearchableQuestion>(
   questions: T[],
@@ -107,12 +128,24 @@ export function rankQuestionMatches<T extends SearchableQuestion>(
   fuse: Fuse<T> | null
 ): Map<string, number> | null {
   const needle = query.trim().toLowerCase();
-  if (!needle) return null;
+  // Fuse's minMatchCharLength applies to every path: a one-character query
+  // must not return every question that happens to contain that letter.
+  if (needle.length < 2) return null;
 
   const scores = new Map<string, number>();
   for (const question of questions) {
     if (!searchableText(question).includes(needle)) continue;
     scores.set(question.id, literalMatchScore(question, needle) ?? CROSS_FIELD_MATCH_SCORE);
+  }
+
+  const tokens = searchTokens(needle);
+  if (tokens.length > 1) {
+    for (const question of questions) {
+      // An exact-phrase match is stronger than the same words spread out.
+      if (scores.has(question.id)) continue;
+      const score = multiTokenScore(question, tokens);
+      if (score !== null) scores.set(question.id, score);
+    }
   }
   if (scores.size > 0 || !fuse) return scores;
 

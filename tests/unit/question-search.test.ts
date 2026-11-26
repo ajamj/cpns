@@ -100,4 +100,26 @@ describe('question search index', () => {
   it('returns null for an empty query', () => {
     expect(rankQuestionMatches(questions, '   ', fuse)).toBeNull();
   });
+
+  it('ignores queries shorter than minMatchCharLength', () => {
+    expect(rankQuestionMatches(questions, 'a', fuse)).toBeNull();
+    expect(rankQuestionMatches(questions, ' s ', fuse)).toBeNull();
+  });
+
+  it('matches multi-word queries whose tokens live in different fields', () => {
+    const split = q('split', {
+      stem: 'Siklon terbentuk di samudra hangat',
+      explanation: 'Wilayah tropis memiliki tekanan rendah',
+      tags: ['meteorologi'],
+    });
+    const phrase = q('phrase', {
+      stem: 'Siklon tropis terbentuk di samudra hangat',
+      explanation: 'Cuaca ekstrem',
+    });
+    const localFuse = createQuestionSearchIndex([split, phrase]);
+    const scores = rankQuestionMatches([split, phrase], 'siklon tropis', localFuse)!;
+    expect(scores.get('split')).toBeDefined();
+    // Same words, but a single stem field still outranks a cross-field hit.
+    expect(scores.get('phrase')!).toBeLessThan(scores.get('split')!);
+  });
 });
