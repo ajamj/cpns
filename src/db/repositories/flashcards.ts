@@ -1,7 +1,13 @@
 // Flashcards Repository
 import { db } from '../schema';
 import type { Flashcard, SM2Params } from '../../shared/types';
-import { reviewCard, sortByDueDate, type SM2Options, type SM2Rating } from '../../features/flashcards/sm2';
+import {
+  DEFAULT_SM2_PARAMS,
+  reviewCard,
+  sortByDueDate,
+  type SM2Options,
+  type SM2Rating,
+} from '../../features/flashcards/sm2';
 import { toCSV } from '../../core/utils';
 
 /** Flashcards CSV for analytics exports (Phase 4, Task 8). */
@@ -66,8 +72,9 @@ export const flashcardsRepo = {
     return cards;
   },
 
-  // Get due cards for study session — oldest due date first
-  async getDueCards(limit = 50): Promise<Flashcard[]> {
+  // Get due cards for study session — oldest due date first, capped by the
+  // configured daily limit (50 unless the user overrides it in settings).
+  async getDueCards(limit = DEFAULT_SM2_PARAMS.dailyLimit ?? 50): Promise<Flashcard[]> {
     const today = new Date().toISOString().split('T')[0] ?? '';
     const due = await db.flashcards
       .where('dueDate')

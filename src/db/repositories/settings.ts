@@ -20,6 +20,7 @@ const SETTINGS_DEFAULTS: SettingsDict = {
     hardPenalty: 1.2,
     minEaseFactor: 1.3,
     maxInterval: 36500,
+    dailyLimit: 50,
   } as SM2Params,
   notificationsEnabled: false,
   autoBackupEnabled: true,

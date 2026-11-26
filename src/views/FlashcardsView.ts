@@ -1,4 +1,6 @@
 // Flashcards View — SM-2 spaced-repetition study session.
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { questionsRepo } from '../db/repositories/questions';
 import { flashcardsRepo } from '../db/repositories/flashcards';
 import { settingsRepo } from '../db/repositories/settings';
@@ -22,16 +24,14 @@ type FlashcardStats = {
 };
 
 const EMPTY_STATS: FlashcardStats = { due: 0, new: 0, learning: 0, review: 0, mature: 0 };
-const DEFAULT_DAILY_LIMIT = 50;
 
 /**
  * The four visible choices map onto the engine's 0-5 quality scale:
- * Again is a lapse (1), Hard is a penalised but successful recall (3),
- * Good is a standard recall (4) and Easy grants the ease bonus (5).
- * `data-quality` keeps the historic 0-3 button index; `data-rating` exposes
- * the SM-2 quality actually applied.
+ * Again (1) and Hard (2) are lapses; Good (4) is a standard recall and Easy
+ * (5) grants the configured ease bonus. `data-quality` keeps the historic
+ * 0-3 button index; `data-rating` exposes the SM-2 quality actually applied.
  */
-const RATING_BY_BUTTON: readonly SM2Rating[] = [1, 3, 4, 5];
+const RATING_BY_BUTTON: readonly SM2Rating[] = [1, 2, 4, 5];
 
 const RATING_BUTTONS = [
   {
@@ -45,7 +45,7 @@ const RATING_BUTTONS = [
   {
     id: 'btnHard',
     quality: 1,
-    rating: 3,
+    rating: 2,
     label: 'flash.rateHard',
     tone: 'btn-warning',
     icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
@@ -77,7 +77,7 @@ function sm2RatingForButton(quality: number): SM2Rating {
 
 /**
  * Map an SM-2 rating onto question mastery. Good (4) and Easy (5) are
- * successful recalls; Again (1) and Hard (3) are lapses. Manual flashcards
+ * successful recalls; Again (1) and Hard (2) are lapses. Manual flashcards
  * have no questionId and are deliberately excluded from mastery updates.
  */
 export function isCorrectRecall(rating: SM2Rating): boolean {
@@ -94,6 +94,26 @@ function escapeHTML(value: unknown): string {
       default: return '&#39;';
     }
   });
+}
+
+/** Sanitise Markdown rendered from user/imported card text. */
+function sanitizeHTML(html: string): string {
+  const purifier = DOMPurify as unknown as { sanitize?: (value: string) => string };
+  if (typeof purifier.sanitize === 'function') return purifier.sanitize(html);
+  const factory = DOMPurify as unknown as (win: Window) => { sanitize: (value: string) => string };
+  if (typeof factory === 'function' && typeof window !== 'undefined') {
+    return factory(window).sanitize(html);
+  }
+  return escapeHTML(html.replace(/<[^>]*>/g, ''));
+}
+
+/** Render a card face as Markdown (front and back), stripping unsafe HTML. */
+function renderMarkdown(text: string): string {
+  try {
+    return sanitizeHTML(String(marked.parse(String(text ?? ''), { async: false, breaks: true })));
+  } catch {
+    return escapeHTML(text);
+  }
 }
 
 export class FlashcardsView {
@@ -138,7 +158,7 @@ export class FlashcardsView {
       const params = settings.flashcardParams ?? DEFAULT_SM2_PARAMS;
       // getDueCards() filters dueDate <= today and sorts oldest first.
       const [cards, stats] = await Promise.all([
-        flashcardsRepo.getDueCards(params.dailyLimit ?? DEFAULT_DAILY_LIMIT),
+        flashcardsRepo.getDueCards(params.dailyLimit ?? DEFAULT_SM2_PARAMS.dailyLimit ?? 50),
         flashcardsRepo.getStats(),
       ]);
       if (this.disposed || !this.element) return;
@@ -243,12 +263,12 @@ export class FlashcardsView {
             <div id="flashcardView" class="flashcard-inner">
               <div class="flashcard-face flashcard-front" aria-hidden="false">
                 <span class="flashcard-face-label">${escapeHTML(t('flash.front'))}</span>
-                <div class="flashcard-text">${escapeHTML(card.front)}</div>
+                <div class="flashcard-text">${renderMarkdown(card.front)}</div>
                 <span class="flashcard-flip-hint">${escapeHTML(t('flash.showAnswer'))}</span>
               </div>
               <div class="flashcard-face flashcard-back" aria-hidden="true">
                 <span class="flashcard-face-label">${escapeHTML(t('flash.back'))}</span>
-                <div class="flashcard-text">${escapeHTML(card.back)}</div>
+                <div class="flashcard-text">${renderMarkdown(card.back)}</div>
                 ${card.questionId ? `<span class="flashcard-flip-hint">${escapeHTML(t('flash.relatedQuestion'))}</span>` : ''}
               </div>
             </div>

@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ABSOLUTE_MIN_EASE_FACTOR,
+  DEFAULT_SM2_PARAMS,
   FlashcardSession,
   calculateSM2,
   isCardDue,
@@ -92,6 +93,33 @@ describe('calculateSM2', () => {
       reps: 0,
       lapses: 3,
       dueDate: '2026-01-11',
+    });
+  });
+
+  it('applies the easy bonus on top of the mature interval for Easy ratings', () => {
+    expect(
+      calculateSM2(state({ interval: 10, easeFactor: 2.5, reps: 2 }), 5, { today: TODAY }),
+    ).toMatchObject({ interval: 33, reps: 3, dueDate: '2026-02-12' });
+  });
+
+  it('shortens the lapse interval by the configured hard penalty', () => {
+    expect(
+      calculateSM2(state({ interval: 30, reps: 7 }), 2, {
+        today: TODAY,
+        params: { initialInterval: 5, hardPenalty: 1.25 },
+      }).interval,
+    ).toBe(4);
+  });
+
+  it('defaults to 50 cards per study day', () => {
+    expect(DEFAULT_SM2_PARAMS).toMatchObject({
+      initialInterval: 1,
+      secondInterval: 6,
+      easyBonus: 1.3,
+      hardPenalty: 1.2,
+      minEaseFactor: 1.3,
+      maxInterval: 36500,
+      dailyLimit: 50,
     });
   });
 

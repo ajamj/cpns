@@ -31,6 +31,7 @@ export const DEFAULT_SM2_PARAMS: SM2Params = {
   hardPenalty: 1.2,
   minEaseFactor: 1.3,
   maxInterval: 36500,
+  dailyLimit: 50,
 };
 
 /** SM-2 never allows the ease factor to drop below 1.3. */
@@ -75,9 +76,10 @@ export function calculateSM2(
   let { interval, easeFactor, reps, lapses } = card;
 
   if (rating < 3) {
-    // Failed recall: reset repetitions and re-show the card tomorrow.
+    // Failed recall (Again/Hard): reset repetitions and re-show the card
+    // sooner than a fresh card by applying the configured hard penalty.
     reps = 0;
-    interval = params.initialInterval;
+    interval = params.initialInterval / Math.max(1, params.hardPenalty);
     lapses += 1;
     easeFactor = easeFactor - 0.2 - (2 - rating) * 0.1;
   } else {
@@ -85,6 +87,9 @@ export function calculateSM2(
     if (reps === 0) interval = params.initialInterval;
     else if (reps === 1) interval = params.secondInterval;
     else interval = Math.max(1, Math.round(interval * easeFactor));
+
+    // Easy (quality 5) gets the configurable bonus on top of the SM-2 interval.
+    if (rating === 5) interval = Math.round(interval * params.easyBonus);
 
     easeFactor = easeFactor + (0.1 - (5 - rating) * (0.08 + (5 - rating) * 0.02));
     reps += 1;
