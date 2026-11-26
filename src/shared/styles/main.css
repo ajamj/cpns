@@ -2687,6 +2687,117 @@ img {
   .mock-score-canvas-wrap { height: 240px; }
 }
 
+/* Time-distribution donuts (Phase 4, Task 5). Each card owns a fixed-height
+   canvas wrapper so Chart.js stays responsive without distorting the arcs. */
+.time-distribution-card {
+  margin-bottom: var(--space-4);
+  min-width: 0;
+}
+
+.time-distribution-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.time-donut-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+}
+
+.time-donut-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  text-align: center;
+}
+
+.time-donut-wrap {
+  position: relative;
+  width: 100%;
+  height: clamp(180px, 20vw, 240px);
+  min-width: 0;
+}
+
+.time-donut-wrap canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.time-donut-wrap canvas[hidden] {
+  display: none;
+}
+
+.time-donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.time-donut-legend-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.time-donut-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+.time-donut-legend-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time-donut-legend-count {
+  flex: 0 0 auto;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-semibold);
+}
+
+.time-donut-legend-empty {
+  justify-content: center;
+}
+
+.time-distribution-caption {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .time-distribution-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .time-distribution-grid { grid-template-columns: minmax(0, 1fr); }
+  .time-donut-wrap { height: 220px; }
+}
+
 /* Print Styles */
 @media print {
   .header,

@@ -1,9 +1,11 @@
 // Analytics View — mastery dashboard, readiness score, weak areas, streak and trends.
 import {
+  ArcElement,
   BarController,
   BarElement,
   CategoryScale,
   Chart,
+  DoughnutController,
   Legend,
   LinearScale,
   LineController,
@@ -46,7 +48,13 @@ import {
 import { APP_CONFIG } from '../core/config';
 import { getLocale, t } from '../core/i18n';
 import { showToast } from '../core/app-utils';
-import type { KisiKisiTopic, Session } from '../shared/types';
+import type {
+  Attempt,
+  Difficulty,
+  KisiKisiTopic,
+  Session,
+  SessionMode,
+} from '../shared/types';
 
 /** Window of recent sessions used for the activity list, streaks and heatmap. */
 const SESSION_WINDOW = 1000;
@@ -63,12 +71,30 @@ type TrendWindow = (typeof TREND_WINDOWS)[number];
 const MOCK_SCORE_SESSION_WINDOW = 200;
 /** The mock-exam score chart always spans the last 30 local calendar days. */
 const MOCK_SCORE_DAYS = 30;
+/** Recent sessions read for the time-distribution donuts (Phase 4, Task 5). */
+const TIME_DISTRIBUTION_SESSION_WINDOW = 500;
+/** Smaller topics roll into "Other" so the topic donut stays readable. */
+const TIME_DONUT_TOPIC_LIMIT = 8;
+const MODE_ORDER: readonly SessionMode[] = ['practice', 'mock-exam', 'flashcard'];
+const DIFFICULTY_ORDER: readonly Difficulty[] = [1, 2, 3];
+const MODE_COLORS: Record<SessionMode, string> = {
+  practice: '#1e3a5f',
+  'mock-exam': '#0e7490',
+  flashcard: '#d97706',
+};
+const DIFFICULTY_COLORS: Record<Difficulty, string> = {
+  1: '#047857',
+  2: '#d97706',
+  3: '#991b1b',
+};
 
 // Tree-shaken Chart.js registration: only the pieces the charts need.
 Chart.register(
+  ArcElement,
   BarController,
   BarElement,
   CategoryScale,
+  DoughnutController,
   LinearScale,
   LineController,
   LineElement,
@@ -113,6 +139,195 @@ function activityLevel(count: number): HeatmapLevel {
   return 3;
 }
 
+interface TimeSlice {
+  key: string;
+  label: string;
+  /** Total time in milliseconds (the donut value when any time was logged). */
+  timeMs: number;
+  /** Questions represented by the slice, shown beside the chart segment. */
+  count: number;
+  color: string;
+}
+
+interface TimeBucket {
+  timeMs: number;
+  count: number;
+}
+
+export interface TimeDistribution {
+  byMode: TimeSlice[];
+  byTopic: TimeSlice[];
+  byDifficulty: TimeSlice[];
+  totalTimeMs: number;
+  totalQuestions: number;
+}
+
+export interface TimeDistributionInput {
+  sessions: readonly Session[];
+  attempts: readonly Attempt[];
+  topicByQuestionId: ReadonlyMap<string, string>;
+  difficultyByQuestionId: ReadonlyMap<string, Difficulty>;
+  labels: {
+    modes: Record<SessionMode, string>;
+    difficulties: Record<Difficulty, string>;
+    other: string;
+  };
+  topicLimit?: number;
+}
+
+type TimeDonutKind = 'mode' | 'topic' | 'difficulty';
+
+function timeDonutCanvasId(kind: TimeDonutKind): string {
+  return `timeBy${kind.charAt(0).toUpperCase()}${kind.slice(1)}Chart`;
+}
+
+function formatDurationLabel(ms: number, isEnglish: boolean): string {
+  const minutes = Math.max(0, Math.round(ms / 60000));
+  if (minutes < 60) return `${minutes} ${isEnglish ? 'min' : 'menit'}`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return isEnglish ? `${hours}h ${remainder}m` : `${hours}j ${remainder}m`;
+}
+
+function addTimeBucket(
+  buckets: Map<string, TimeBucket>, key: string, timeMs: number, count: number
+): void {
+  const bucket = buckets.get(key) ?? { timeMs: 0, count: 0 };
+  bucket.timeMs += timeMs;
+  bucket.count += count;
+  buckets.set(key, bucket);
+}
+
+/**
+ * Aggregate the recent session window into three donut datasets. Session
+ * summaries own the per-mode time/count totals; per-question attempts attribute
+ * time to a topic and difficulty using the sparse question indexes. Old
+ * sessions without attempts fall back to summary topic stats and the configured
+ * difficulty mix, so the charts still have data after an app upgrade.
+ */
+export function buildTimeDistribution({
+  sessions,
+  attempts,
+  topicByQuestionId,
+  difficultyByQuestionId,
+  labels,
+  topicLimit = TIME_DONUT_TOPIC_LIMIT,
+}: TimeDistributionInput): TimeDistribution {
+  const modeBuckets = new Map<string, TimeBucket>();
+  const topicBuckets = new Map<string, TimeBucket>();
+  const difficultyBuckets = new Map<string, TimeBucket>();
+  const sessionIds = new Set<string>();
+  let totalTimeMs = 0;
+  let totalQuestions = 0;
+
+  for (const session of sessions) {
+    sessionIds.add(session.id);
+    if (!MODE_ORDER.includes(session.mode)) continue;
+    const timeMs = Math.max(0, Number(session.summary?.timeSpentMs) || 0);
+    const count = Math.max(0, Number(session.summary?.totalQuestions) || 0);
+    addTimeBucket(modeBuckets, session.mode, timeMs, count);
+    totalTimeMs += timeMs;
+    totalQuestions += count;
+  }
+
+  let hasAttemptTimes = false;
+  for (const attempt of attempts) {
+    if (!sessionIds.has(attempt.sessionId)) continue;
+    const questionId = String(attempt.questionId);
+    const topicCode = topicByQuestionId.get(questionId);
+    const difficulty = difficultyByQuestionId.get(questionId);
+    if (!topicCode && difficulty === undefined) continue;
+    hasAttemptTimes = true;
+    const timeMs = Math.max(0, Number(attempt.timeMs) || 0);
+    if (topicCode) addTimeBucket(topicBuckets, topicCode, timeMs, 1);
+    if (difficulty !== undefined) addTimeBucket(difficultyBuckets, String(difficulty), timeMs, 1);
+  }
+
+  if (!hasAttemptTimes) {
+    for (const session of sessions) {
+      const summary = session.summary;
+      if (!summary) continue;
+      for (const [code, stat] of Object.entries(summary.perTopic ?? {})) {
+        const attempted = Math.max(0, Number(stat?.attempted) || 0);
+        addTimeBucket(
+          topicBuckets, code, Math.max(0, Number(stat?.avgTimeMs) || 0) * attempted, attempted
+        );
+      }
+      const mix = session.config?.difficultyMix;
+      const weights = DIFFICULTY_ORDER.map(difficulty => Math.max(0, Number(mix?.[difficulty]) || 0));
+      const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+      if (weightTotal === 0) continue;
+      const timeMs = Math.max(0, Number(summary.timeSpentMs) || 0);
+      const questions = Math.max(0, Number(summary.totalQuestions) || 0);
+      DIFFICULTY_ORDER.forEach((difficulty, index) => {
+        const share = weights[index] ?? 0;
+        addTimeBucket(
+          difficultyBuckets,
+          String(difficulty),
+          (timeMs * share) / weightTotal,
+          Math.round((questions * share) / weightTotal)
+        );
+      });
+    }
+  }
+
+  const toSlices = (
+    buckets: Map<string, TimeBucket>,
+    keys: readonly string[],
+    colorFor: (key: string) => string,
+    labelFor: (key: string) => string
+  ): TimeSlice[] => keys
+    .filter(key => {
+      const bucket = buckets.get(key);
+      return !!bucket && (bucket.timeMs > 0 || bucket.count > 0);
+    })
+    .map(key => {
+      const bucket = buckets.get(key)!;
+      return {
+        key,
+        label: labelFor(key),
+        timeMs: bucket.timeMs,
+        count: bucket.count,
+        color: colorFor(key),
+      };
+    });
+
+  const byMode = toSlices(
+    modeBuckets,
+    MODE_ORDER,
+    key => MODE_COLORS[key as SessionMode] ?? '#55657a',
+    key => labels.modes[key as SessionMode] ?? key
+  );
+
+  const topicKeys = [...topicBuckets.entries()]
+    .filter(([, bucket]) => bucket.timeMs > 0 || bucket.count > 0)
+    .sort((a, b) => b[1].timeMs - a[1].timeMs || b[1].count - a[1].count || a[0].localeCompare(b[0]))
+    .map(([code]) => code);
+  const limit = Math.max(1, topicLimit);
+  const byTopic = toSlices(
+    topicBuckets, topicKeys.slice(0, limit), code => getSubdomainColor(code), code => code
+  );
+  const tail = topicKeys.slice(limit);
+  if (tail.length > 0) {
+    byTopic.push({
+      key: '__other__',
+      label: labels.other,
+      timeMs: tail.reduce((sum, code) => sum + (topicBuckets.get(code)?.timeMs ?? 0), 0),
+      count: tail.reduce((sum, code) => sum + (topicBuckets.get(code)?.count ?? 0), 0),
+      color: '#64748b',
+    });
+  }
+
+  const byDifficulty = toSlices(
+    difficultyBuckets,
+    DIFFICULTY_ORDER.map(String),
+    key => DIFFICULTY_COLORS[Number(key) as Difficulty] ?? '#55657a',
+    key => labels.difficulties[Number(key) as Difficulty] ?? key
+  );
+
+  return { byMode, byTopic, byDifficulty, totalTimeMs, totalQuestions };
+}
+
 const READINESS_BAND_CLASSES = ['badge-danger', 'badge-warning', 'badge-success'] as const;
 const READINESS_BAND_COLORS = [
   'var(--color-danger)',
@@ -142,6 +357,12 @@ export class AnalyticsView {
   private masteryChart: Chart | null = null;
   private mockScoreSessions: Session[] = [];
   private mockScoreChart: Chart | null = null;
+  /** Sessions backing the time-distribution donuts (Phase 4, Task 5). */
+  private timeSessions: Session[] = [];
+  private timeDistribution: TimeDistribution = {
+    byMode: [], byTopic: [], byDifficulty: [], totalTimeMs: 0, totalQuestions: 0,
+  };
+  private timeCharts: Partial<Record<TimeDonutKind, Chart>> = {};
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -715,6 +936,131 @@ export class AnalyticsView {
       : `${exams} ujian mock pada ${active.length} hari aktif · rata-rata ${average}% · terakhir ${latest}% · ${direction}`;
   }
 
+  /** Three donut cards: study time by mode, topic and question difficulty. */
+  private getTimeDistributionHTML(): string {
+    const isEnglish = getLocale() === 'en';
+    const sessionWord = isEnglish ? 'sessions' : 'sesi';
+    return `
+      <section class="card time-distribution-card" aria-labelledby="timeDistributionTitle">
+        <div class="card-header">
+          <h2 class="card-title" id="timeDistributionTitle">${t('analytics.timeDistribution')}</h2>
+          <span class="badge badge-info">${this.timeSessions.length} ${sessionWord}</span>
+        </div>
+        <div class="card-content">
+          <div class="time-distribution-grid">
+            ${this.getTimeDonutHTML('mode', t('analytics.byMode'), this.timeDistribution.byMode)}
+            ${this.getTimeDonutHTML('topic', t('analytics.byTopic'), this.timeDistribution.byTopic)}
+            ${this.getTimeDonutHTML('difficulty', t('analytics.byDifficulty'), this.timeDistribution.byDifficulty)}
+          </div>
+          <p class="time-distribution-caption" id="timeDistributionSummary" aria-live="polite">${this.getTimeDistributionCaption()}</p>
+        </div>
+      </section>
+    `;
+  }
+
+  private getTimeDonutHTML(kind: TimeDonutKind, title: string, slices: TimeSlice[]): string {
+    const isEnglish = getLocale() === 'en';
+    const questionWord = isEnglish ? 'questions' : 'soal';
+    const legend = slices.length > 0
+      ? slices.map(slice => `
+        <li class="time-donut-legend-item">
+          <span class="time-donut-dot" style="background:${slice.color}" aria-hidden="true"></span>
+          <span class="time-donut-legend-label">${escapeHTML(slice.label)}</span>
+          <span class="time-donut-legend-count">${slice.count} ${questionWord}</span>
+        </li>
+      `).join('')
+      : `<li class="time-donut-legend-item time-donut-legend-empty">${isEnglish ? 'No data yet' : 'Belum ada data'}</li>`;
+
+    return `
+      <div class="time-donut-card" data-time-donut="${kind}">
+        <h3 class="time-donut-title">${title}</h3>
+        <div class="time-donut-wrap">
+          <canvas id="${timeDonutCanvasId(kind)}" role="img"
+            aria-label="${title}: ${isEnglish ? 'study time and question counts by category' : 'waktu belajar dan jumlah soal per kategori'}">
+            ${title}
+          </canvas>
+        </div>
+        <ul class="time-donut-legend" aria-label="${title}">${legend}</ul>
+      </div>
+    `;
+  }
+
+  private getTimeDistributionCaption(): string {
+    const isEnglish = getLocale() === 'en';
+    const { totalTimeMs, totalQuestions } = this.timeDistribution;
+    const duration = formatDurationLabel(totalTimeMs, isEnglish);
+    const sessionWord = isEnglish ? 'sessions' : 'sesi';
+    const questionWord = isEnglish ? 'questions' : 'soal';
+    const detail = isEnglish
+      ? `${duration} · ${totalQuestions} ${questionWord} in ${this.timeSessions.length} ${sessionWord}`
+      : `${duration} · ${totalQuestions} ${questionWord} pada ${this.timeSessions.length} ${sessionWord}`;
+    return totalTimeMs === 0 && totalQuestions > 0
+      ? `${detail} — ${isEnglish ? 'segments show question counts' : 'segmen menunjukkan jumlah soal'}`
+      : detail;
+  }
+
+  /** Build (or rebuild) the three Chart.js doughnut charts from current data. */
+  private renderTimeDistribution(): void {
+    const isEnglish = getLocale() === 'en';
+    const questionWord = isEnglish ? 'questions' : 'soal';
+    const useTime = this.timeDistribution.totalTimeMs > 0;
+    const groups: Array<{ kind: TimeDonutKind; slices: TimeSlice[] }> = [
+      { kind: 'mode', slices: this.timeDistribution.byMode },
+      { kind: 'topic', slices: this.timeDistribution.byTopic },
+      { kind: 'difficulty', slices: this.timeDistribution.byDifficulty },
+    ];
+
+    for (const { kind, slices } of groups) {
+      const canvas = this.element?.querySelector<HTMLCanvasElement>(`#${timeDonutCanvasId(kind)}`);
+      if (!canvas) continue;
+      this.timeCharts[kind]?.destroy();
+      delete this.timeCharts[kind];
+
+      if (slices.length === 0) {
+        canvas.hidden = true;
+        continue;
+      }
+      canvas.hidden = false;
+
+      const config: ChartConfiguration<'doughnut', number[], string> = {
+        type: 'doughnut',
+        data: {
+          labels: slices.map(slice => slice.label),
+          datasets: [{
+            label: isEnglish ? 'Study time' : 'Waktu belajar',
+            data: slices.map(slice => (useTime ? slice.timeMs : slice.count)),
+            backgroundColor: slices.map(slice => slice.color),
+            borderColor: '#ffffff',
+            borderWidth: 2,
+            hoverOffset: 6,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '62%',
+          plugins: {
+            // Counts are rendered in the accessible HTML legend beside the arcs.
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: item => {
+                  const slice = slices[item.dataIndex];
+                  if (!slice) return '';
+                  return `${formatDurationLabel(slice.timeMs, isEnglish)} · ${slice.count} ${questionWord}`;
+                },
+              },
+            },
+          },
+        },
+      };
+      this.timeCharts[kind] = new Chart(canvas, config);
+    }
+
+    const summary = this.element?.querySelector<HTMLElement>('#timeDistributionSummary');
+    if (summary) summary.textContent = this.getTimeDistributionCaption();
+  }
+
   private getHTML(): string {
     return `
       <div class="page-header">
@@ -729,6 +1075,7 @@ export class AnalyticsView {
       ${this.getReadinessHTML()}
       ${this.getMasteryTrendHTML()}
       ${this.getMockScoreChartHTML()}
+      ${this.getTimeDistributionHTML()}
       ${this.getStatsHTML()}
       <section class="card streak-heatmap-card">
         <div class="card-header"><h2 class="card-title">${t('analytics.heatmap')}</h2><span class="badge badge-warning">🔥 ${this.streaks.current} ${getLocale() === 'en' ? 'days' : 'hari'}</span></div>
@@ -1017,6 +1364,9 @@ export class AnalyticsView {
       attempts,
       topicKeys,
       questionIds,
+      timeSessions,
+      difficultyKeys,
+      difficultyIds,
     ] = await Promise.all([
       loadKisiKisi(),
       questionsRepo.getStatsByTopic(),
@@ -1028,6 +1378,10 @@ export class AnalyticsView {
       db.attempts.orderBy('timestamp').reverse().limit(MAX_TREND_ATTEMPTS).toArray(),
       db.questions.orderBy('topicCode').keys(),
       db.questions.orderBy('topicCode').primaryKeys(),
+      // Task 5 donuts: separate window plus sparse difficulty lookup.
+      sessionsRepo.getRecent(TIME_DISTRIBUTION_SESSION_WINDOW),
+      db.questions.orderBy('difficulty').keys(),
+      db.questions.orderBy('difficulty').primaryKeys(),
     ]);
 
     this.topics = topics.length > 0 ? topics : getKisiKisiSync();
@@ -1051,6 +1405,29 @@ export class AnalyticsView {
     const topicByQuestionId = new Map(
       questionIds.map((id, index) => [String(id), String(topicKeys[index] ?? '')])
     );
+    const difficultyByQuestionId = new Map(
+      difficultyIds.map((id, index) => [String(id), Number(difficultyKeys[index] ?? 0) as Difficulty])
+    );
+    this.timeSessions = timeSessions;
+    this.timeDistribution = buildTimeDistribution({
+      sessions: timeSessions,
+      attempts,
+      topicByQuestionId,
+      difficultyByQuestionId,
+      labels: {
+        modes: {
+          practice: t('practice.title'),
+          'mock-exam': t('mock.title'),
+          flashcard: t('flash.title'),
+        },
+        difficulties: {
+          1: t('difficulty.1'),
+          2: t('difficulty.2'),
+          3: t('difficulty.3'),
+        },
+        other: getLocale() === 'en' ? 'Other' : 'Lainnya',
+      },
+    });
     this.masteryAnswers = attempts.flatMap((attempt) => {
       const session = sessionById.get(attempt.sessionId);
       const topicCode = topicByQuestionId.get(attempt.questionId);
@@ -1091,6 +1468,7 @@ export class AnalyticsView {
         this.bindEvents();
         this.renderMasteryChart();
         this.renderMockScoreChart();
+        this.renderTimeDistribution();
       }
     }).catch((error) => {
       console.error('AnalyticsView loadData error:', error);
@@ -1099,6 +1477,7 @@ export class AnalyticsView {
         this.bindEvents();
         this.renderMasteryChart();
         this.renderMockScoreChart();
+        this.renderTimeDistribution();
       }
     });
     return this.element;
