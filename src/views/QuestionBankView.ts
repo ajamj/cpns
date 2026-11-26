@@ -2,11 +2,17 @@
 import { questionsRepo } from '../db/repositories/questions';
 import {
   getAllTopicCodes,
+  getCategoryLabel,
   getSubdomainColor,
   getTopicsByCategory,
   getTopicsBySubdomain,
   loadKisiKisi,
 } from '../features/kisi-kisi/registry';
+import {
+  parseQuestionFilterParams,
+  QUESTION_FILTER_DEBOUNCE_MS,
+  replaceQuestionFilterHash,
+} from '../features/questions/filter-url';
 import {
   correctIndices,
   createEmptyDraft,
@@ -62,6 +68,11 @@ const OVERSCAN = 8;
 // kicks in for large banks where rendering every row would block the UI.
 const VIRTUALIZE_THRESHOLD = 200;
 
+type FilterSectionKey = 'topic' | 'difficulty' | 'flags' | 'mastery' | 'source' | 'dateRange';
+const FILTER_SECTION_KEYS: readonly FilterSectionKey[] = [
+  'topic', 'difficulty', 'flags', 'mastery', 'source', 'dateRange',
+];
+
 type MarkdownEditor = EasyMDE;
 type EditorConstructor = new (options: Record<string, unknown>) => MarkdownEditor;
 
@@ -77,6 +88,13 @@ function escapeHTML(value: unknown): string {
     }
   });
 }
+
+/** Filter badges reuse the exact badge classes/colours of the question rows. */
+const FLAG_FILTER_BADGES: ReadonlyArray<[QuestionFlag, string, string, string]> = [
+  ['bookmarked', 'filter.bookmarked', 'badge-warning', '★'],
+  ['needsReview', 'filter.needsReview', 'badge-info', '↻'],
+  ['disputed', 'filter.disputed', 'badge-danger', '⚠'],
+];
 
 const SUBDOMAIN_LABEL_KEYS: Record<KisiKisiTopic['subdomain'], string> = {
   meteorology: 'subdomain.meteorology',
@@ -160,6 +178,8 @@ export class QuestionBankView {
   private trashCount = 0;
   private filter: QuestionFilter = {};
   private searchQuery = '';
+  /** Collapsible sidebar state survives the full re-render on every filter change. */
+  private openSections: Set<FilterSectionKey> = new Set(FILTER_SECTION_KEYS);
   private fuse: Fuse<any> | null = null;
   // Selection is keyed by ID, not by rendered row, so it survives virtualization.
   private selectedIds: Set<string> = new Set();
@@ -194,21 +214,26 @@ export class QuestionBankView {
   }
 
   private parseFilterFromParams(): void {
-    if (this.params.topic) this.filter.topicCodes = this.params.topic.split(',') as TopicCode[];
-    if (this.params.difficulty) this.filter.difficulty = parseInt(this.params.difficulty) as any;
-    if (this.params.mastery) this.filter.masteryLevels = this.params.mastery.split(',').map(Number) as any;
-    if (this.params.flags) {
-      const flags = this.params.flags.split(',');
-      this.filter.flags = {};
-      flags.forEach(f => { this.filter.flags![f as QuestionFlag] = true; });
-    }
-    if (this.params.source) this.filter.source = this.params.source;
-    if (this.params.startDate || this.params.endDate) {
-      const start = this.params.startDate ?? this.params.endDate ?? '';
-      const end = this.params.endDate ?? this.params.startDate ?? '';
-      if (start <= end) this.filter.dateRange = { start, end };
-    }
-    if (this.params.search) this.searchQuery = this.params.search;
+    const { filter, searchQuery } = parseQuestionFilterParams(this.params);
+    this.filter = filter;
+    this.searchQuery = searchQuery;
+  }
+
+  /** Mirror filter state into the hash for shareable/reload-safe URLs. */
+  private syncFilterToURL(): void {
+    if (typeof window === 'undefined' || typeof window.history?.replaceState !== 'function') return;
+    const nextHash = replaceQuestionFilterHash(window.location.hash, {
+      filter: this.filter,
+      searchQuery: this.searchQuery,
+    });
+    if (nextHash === window.location.hash) return;
+    // replaceState does not fire hashchange: syncing a keystroke must not
+    // re-mount the whole view or steal focus from the input being typed in.
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${window.location.search}${nextHash}`
+    );
   }
 
   async loadQuestions(): Promise<void> {
@@ -233,6 +258,10 @@ export class QuestionBankView {
   }
 
   private applyFilters(): void {
+    // Keep the repository/export filter contract in step with the visible
+    // search box (the view ranks via Fuse, the repository uses literal text).
+    this.filter.textSearch = this.searchQuery.trim() || undefined;
+    this.syncFilterToURL();
     this.filteredQuestions = selectFilteredQuestions(
       this.questions,
       this.searchQuery,
@@ -329,6 +358,20 @@ export class QuestionBankView {
     `;
   }
 
+  /** Collapsible sidebar group; `open` state survives full view re-renders. */
+  private filterSection(
+    key: FilterSectionKey,
+    label: string,
+    content: string,
+    labelId: string
+  ): string {
+    return `
+          <details class="filter-section" data-filter-section="${key}" id="filterSection-${key}" ${this.openSections.has(key) ? 'open' : ''}>
+            <summary class="filter-section-title" id="${labelId}">${escapeHTML(label)}</summary>
+            <div class="filter-section-content">${content}</div>
+          </details>`;
+  }
+
   private getHTML(): string {
     return `
       <div class="page-header">
@@ -350,7 +393,7 @@ export class QuestionBankView {
             <button type="button" class="btn btn-ghost btn-sm" id="btnClearFilters">${t('filter.clear')}</button>
           </div>
 
-          <div class="filter-section">
+          <div class="filter-section filter-section-search">
             <label class="form-label" for="searchInput">${t('common.search')}</label>
             <div style="position:relative;">
               <input type="search" id="searchInput" class="form-input" placeholder="${t('common.search')}" value="${escapeHTML(this.searchQuery)}" style="padding-right:40px;">
@@ -360,56 +403,45 @@ export class QuestionBankView {
             </div>
           </div>
 
-          <section class="filter-section">
-            <h3 class="filter-section-title" id="topicFilterLabel">${t('filter.topic')}</h3>
+          ${this.filterSection('topic', t('filter.topic'), `
             <div class="filter-tree" role="group" aria-labelledby="topicFilterLabel">
               ${this.getTopicTreeHTML()}
-            </div>
-          </section>
+            </div>`, 'topicFilterLabel')}
 
-          <div class="filter-section">
-            <label class="form-label" for="difficultyFilter">${t('filter.difficulty')}</label>
+          ${this.filterSection('difficulty', t('filter.difficulty'), `
             <select id="difficultyFilter" class="form-select" aria-label="${t('filter.difficulty')}">
               <option value="">${t('filter.all')}</option>
-              <option value="1" ${this.filter.difficulty === 1 ? 'selected' : ''}>${t('difficulty.1')}</option>
-              <option value="2" ${this.filter.difficulty === 2 ? 'selected' : ''}>${t('difficulty.2')}</option>
-              <option value="3" ${this.filter.difficulty === 3 ? 'selected' : ''}>${t('difficulty.3')}</option>
+              ${([1, 2, 3] as Difficulty[]).map(level => `
+                <option value="${level}" ${this.filter.difficulty === level ? 'selected' : ''}>${t('difficulty.' + level)}</option>`).join('')}
             </select>
-          </div>
+            <div class="filter-badge-row" aria-hidden="true">
+              ${([1, 2, 3] as Difficulty[]).map(level => `
+                <span class="badge badge-difficulty-${level} ${this.filter.difficulty === level ? 'is-active' : ''}">${t('difficulty.' + level)}</span>`).join('')}
+            </div>`, 'difficultyFilterLabel')}
 
-          <section class="filter-section">
-            <fieldset class="filter-fieldset">
-              <legend class="filter-section-title">${t('filter.flags')}</legend>
-              ${([
-                ['bookmarked', 'filter.bookmarked'],
-                ['needsReview', 'filter.needsReview'],
-                ['disputed', 'filter.disputed'],
-              ] as Array<[QuestionFlag, string]>).map(([flag, label]) => `
-                <label class="form-check filter-check">
+          ${this.filterSection('flags', t('filter.flags'), `
+            <fieldset class="filter-fieldset" aria-labelledby="flagsFilterLabel">
+              ${FLAG_FILTER_BADGES.map(([flag, label, badgeClass, symbol]) => `
+                <label class="form-check filter-check" for="flagFilter-${flag}">
                   <input type="checkbox" class="form-check-input" id="flagFilter-${flag}" name="filterFlag" value="${flag}" ${this.filter.flags?.[flag] ? 'checked' : ''}>
                   <span class="form-check-label">${t(label)}</span>
+                  <span class="badge filter-flag-badge ${badgeClass}" aria-hidden="true">${symbol}</span>
                 </label>`).join('')}
-            </fieldset>
-          </section>
+            </fieldset>`, 'flagsFilterLabel')}
 
-          <section class="filter-section">
-            <fieldset class="filter-fieldset">
-              <legend class="filter-section-title">${t('filter.mastery')}</legend>
+          ${this.filterSection('mastery', t('filter.mastery'), `
+            <fieldset class="filter-fieldset" aria-labelledby="masteryFilterLabel">
               ${([0, 1, 2, 3] as MasteryLevel[]).map(level => `
-                <label class="form-check filter-check">
+                <label class="form-check filter-check" for="masteryFilter-${level}">
                   <input type="checkbox" class="form-check-input" id="masteryFilter-${level}" name="filterMastery" value="${level}" ${this.filter.masteryLevels?.includes(level) ? 'checked' : ''}>
-                  <span class="form-check-label">${t('mastery.' + level)}</span>
+                  <span class="badge filter-mastery-badge badge-mastery-${level}">${t('mastery.' + level)}</span>
                 </label>`).join('')}
-            </fieldset>
-          </section>
+            </fieldset>`, 'masteryFilterLabel')}
 
-          <div class="filter-section">
-            <label class="form-label" for="sourceFilter">${t('filter.source')}</label>
-            <input type="text" id="sourceFilter" class="form-input" placeholder="${t('filter.source')}" value="${escapeHTML(this.filter.source ?? '')}" autocomplete="off">
-          </div>
+          ${this.filterSection('source', t('filter.source'), `
+            <input type="text" id="sourceFilter" class="form-input" placeholder="${t('filter.source')}" value="${escapeHTML(this.filter.source ?? '')}" autocomplete="off">`, 'sourceFilterLabel')}
 
-          <section class="filter-section">
-            <h3 class="filter-section-title" id="dateRangeLabel">${t('filter.dateRange')}</h3>
+          ${this.filterSection('dateRange', t('filter.dateRange'), `
             <div class="filter-date-range" role="group" aria-labelledby="dateRangeLabel">
               <div>
                 <label class="filter-sublabel" for="dateStart">${t('filter.dateStart')}</label>
@@ -419,8 +451,7 @@ export class QuestionBankView {
                 <label class="filter-sublabel" for="dateEnd">${t('filter.dateEnd')}</label>
                 <input type="date" id="dateEnd" class="form-input" value="${escapeHTML(this.filter.dateRange?.end ?? '')}">
               </div>
-            </div>
-          </section>
+            </div>`, 'dateRangeLabel')}
         </div>
       </aside>
 
@@ -517,9 +548,11 @@ export class QuestionBankView {
         <span>${escapeHTML(label)}</span>
       </label>`;
 
+    // Registry labels are the canonical Indonesian category names used by the
+    // kisi-kisi document (Kemampuan Umum / Kemampuan Khusus).
     const categories: Array<{ id: 'umum' | 'khusus'; label: string }> = [
-      { id: 'umum', label: t('kisi-kisi.umum') },
-      { id: 'khusus', label: t('kisi-kisi.khusus') },
+      { id: 'umum', label: getCategoryLabel('umum') || t('kisi-kisi.umum') },
+      { id: 'khusus', label: getCategoryLabel('khusus') || t('kisi-kisi.khusus') },
     ];
 
     const categoryHTML = ({ id, label }: { id: 'umum' | 'khusus'; label: string }): string => {
@@ -700,7 +733,7 @@ export class QuestionBankView {
       this.searchQuery = searchInput.value;
       this.applyFilters();
       this.refreshView();
-    }, 50));
+    }, QUESTION_FILTER_DEBOUNCE_MS));
 
     clearSearch?.addEventListener('click', () => {
       this.searchQuery = '';
@@ -710,6 +743,16 @@ export class QuestionBankView {
 
     const sidebar = this.element.querySelector<HTMLElement>('#filterSidebar');
 
+    // Persist each collapsible group's open/closed state across re-renders.
+    sidebar?.querySelectorAll<HTMLDetailsElement>('details[data-filter-section]').forEach(details => {
+      details.addEventListener('toggle', () => {
+        const key = details.dataset.filterSection as FilterSectionKey | undefined;
+        if (!key) return;
+        if (details.open) this.openSections.add(key);
+        else this.openSections.delete(key);
+      });
+    });
+
     // Source is a substring match; debounce to avoid re-rendering mid-keystroke.
     const sourceInput = sidebar?.querySelector<HTMLInputElement>('#sourceFilter');
     sourceInput?.addEventListener('input', debounce(() => {
@@ -717,7 +760,7 @@ export class QuestionBankView {
       this.filter.source = value || undefined;
       this.applyFilters();
       this.refreshView();
-    }, 150));
+    }, QUESTION_FILTER_DEBOUNCE_MS));
 
     // One delegated handler covers every checkbox/select in the sidebar,
     // including the category and subdomain branch checkboxes.

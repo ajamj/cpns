@@ -1609,6 +1609,66 @@ img {
   color: var(--color-text);
 }
 
+/* Collapsible filter groups: a native details/summary keeps keyboard and
+   screen-reader behaviour for free; the chevron replaces the browser marker. */
+.filter-section > summary.filter-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  list-style: none;
+  cursor: pointer;
+}
+
+.filter-section > summary.filter-section-title::-webkit-details-marker {
+  display: none;
+}
+
+.filter-section > summary.filter-section-title::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-right: 3px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.filter-section[open] > summary.filter-section-title::after {
+  transform: rotate(225deg);
+}
+
+.filter-section-content > :last-child {
+  margin-bottom: 0;
+}
+
+.filter-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.filter-badge-row .badge {
+  opacity: 0.6;
+}
+
+.filter-badge-row .badge.is-active {
+  opacity: 1;
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.filter-flag-badge {
+  margin-left: auto;
+}
+
+.filter-mastery-badge {
+  font-weight: var(--font-medium);
+}
+
 .filter-fieldset {
   margin: 0;
   padding: 0;
