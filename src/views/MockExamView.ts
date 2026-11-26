@@ -211,15 +211,19 @@ export class MockExamView {
     this.element.className = 'mock-exam-view';
     this.element.innerHTML = this.getSkeletonHTML();
     
-    this.loadQuestions().then(() => {
+    void this.loadQuestions().then(() => {
+      if (!this.element) return;
+      // Both entry points (#/mock-exam and ?config=true) open the same form;
+      // an exam only starts once the candidate submits it.
+      this.element.innerHTML = this.getConfigHTML();
+      this.bindConfigEvents();
+    }).catch(error => {
+      console.error('MockExamView failed to load questions:', error);
       if (this.element) {
-        if (this.params.config === 'true') {
-          this.element.innerHTML = this.getConfigHTML();
-          this.bindConfigEvents();
-        } else {
-          this.element.innerHTML = this.getConfigHTML();
-          this.bindConfigEvents();
-        }
+        this.element.innerHTML = `
+          <div class="page-header"><h1 class="page-title">${t('mock.title')}</h1></div>
+          <div class="card" role="alert"><div class="card-content">${escapeHTML(t('qb.noQuestions'))}</div></div>
+        `;
       }
     });
 
@@ -340,6 +344,11 @@ export class MockExamView {
           <div style="display:flex;align-items:center;gap:var(--space-4);">
             <h1 class="page-title" style="font-size:var(--text-lg);">${t('mock.title')}</h1>
             <span class="badge badge-${isFlagged ? 'warning' : isMarked ? 'info' : 'muted'}">${isFlagged ? '⚑ Flagged' : isMarked ? '★ Review' : ''}</span>
+            <div class="exam-progress" role="progressbar" aria-label="${t('mock.title')}"
+              aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress)}">
+              <span class="exam-progress-fill" style="width:${progress}%"></span>
+            </div>
+            <span class="exam-progress-label">${this.session.currentIndex + 1} / ${this.session.questions.length}</span>
           </div>
           <div style="display:flex;align-items:center;gap:var(--space-4);">
             <div class="timer${warningClass}" data-warning-level="${warningLevel}" role="timer" aria-label="${t('mock.duration')}" aria-live="off" style="font-size:var(--text-2xl);font-weight:var(--font-bold);font-family:var(--font-mono);font-variant-numeric:tabular-nums;${warningStyle}">
@@ -365,14 +374,12 @@ export class MockExamView {
                   <span class="badge badge-difficulty-${q.difficulty}">${t('difficulty.' + q.difficulty)}</span>
                   <span>Soal ${this.session.currentIndex + 1} / ${this.session.questions.length}</span>
                 </div>
-                <div style="font-size:var(--text-lg);line-height:var(--leading-relaxed);font-weight:var(--font-medium);margin-bottom:var(--space-6);">${q.stem}</div>
+                <div class="exam-stem" style="font-size:var(--text-lg);line-height:var(--leading-relaxed);font-weight:var(--font-medium);margin-bottom:var(--space-6);">${renderRichText(q.stem)}</div>
 
                 <!-- Options -->
                 <div style="display:flex;flex-direction:column;gap:var(--space-3);">
                   ${q.options.map((opt: any, i: number) => {
                     const isSelected = answer?.userAnswer.includes(i);
-                    const isCorrect = q.correctAnswer.includes(i);
-                    const showResult = false; // Don't show during exam
                     let cls = 'exam-option';
                     if (isSelected) cls += ' selected';
                     return `
@@ -384,7 +391,7 @@ export class MockExamView {
                         ${isSelected ? 'border-color:var(--color-primary);background:var(--color-primary-light);' : ''}
                       ">
                         <span style="width:32px;height:32px;border:2px solid var(--color-border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:var(--font-bold);font-size:var(--text-base);flex-shrink:0;${isSelected ? 'background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary);' : ''}">${String.fromCharCode(65 + i)}</span>
-                        <div style="flex:1;font-size:var(--text-base);line-height:var(--leading-relaxed);">${opt.text}</div>
+                        <div style="flex:1;font-size:var(--text-base);line-height:var(--leading-relaxed);">${renderRichText(opt.text)}</div>
                       </button>
                     `;
                   }).join('')}
@@ -405,6 +412,12 @@ export class MockExamView {
                 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px;">
                   ${this.session.questions.map((_, i) => this.getNavCellHTML(i)).join('')}
                 </div>
+              </div>
+
+              <!-- Manual navigation (keyboard arrows and the grid above also work) -->
+              <div class="exam-navigation" style="display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--color-border);">
+                <button type="button" class="btn btn-secondary" id="btnExamPrev" ${this.session.currentIndex === 0 ? 'disabled aria-disabled="true"' : ''}>← ${t('common.previous')}</button>
+                <button type="button" class="btn btn-primary" id="btnExamNext" ${this.session.currentIndex === this.session.questions.length - 1 ? 'disabled aria-disabled="true"' : ''}>${t('common.next')} →</button>
               </div>
             </div>
           </div>
@@ -908,10 +921,12 @@ export class MockExamView {
       btn.addEventListener('click', () => this.selectOption(Number(btn.dataset.option)));
     });
 
-    // Navigator
+    // Navigator + explicit previous/next controls
     this.element.querySelectorAll<HTMLButtonElement>('.nav-cell').forEach(btn => {
       btn.addEventListener('click', () => this.jumpToQuestion(Number(btn.dataset.index)));
     });
+    this.element.querySelector('#btnExamPrev')?.addEventListener('click', () => this.navigate(-1));
+    this.element.querySelector('#btnExamNext')?.addEventListener('click', () => this.navigate(1));
 
     // Flag/Mark Review/Submit
     this.element.querySelector('#btnFlagExam')?.addEventListener('click', () => this.toggleFlag());
