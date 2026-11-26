@@ -50,7 +50,7 @@ import type { KisiKisiTopic, Session } from '../shared/types';
 
 /** Window of recent sessions used for the activity list, streaks and heatmap. */
 const SESSION_WINDOW = 1000;
-/** Window passed to sessionsRepo for the weekly report (Phase 4, Task 6). */
+/** Window passed to sessionsRepo for the weekly report and certificate (Tasks 6/7). */
 const REPORT_SESSION_WINDOW = 500;
 /** A year of activity: 53 Monday-first weeks (the current week included). */
 const HEATMAP_WEEKS = 53;
@@ -131,6 +131,7 @@ export class AnalyticsView {
   private reportSessions: Session[] = [];
   private reportMarkdown = '';
   private reportGeneratedAt = new Date();
+  private certificateGeneratedAt = new Date();
   private weakAreas: WeakArea[] = [];
   private readiness: ReadinessResult = calculateReadiness([], {});
   private streaks: StreakResult = { current: 0, longest: 0, activeDays: 0 };
@@ -722,6 +723,7 @@ export class AnalyticsView {
         <div class="page-actions">
           <button class="btn btn-primary" id="btnWeeklyReport">${t('analytics.weeklyReport')}</button>
           <button class="btn btn-secondary" id="btnExportReport">${t('analytics.exportReport')}</button>
+          <button class="btn btn-secondary btn-certificate" id="btnCertificate">${t('analytics.certificate')}</button>
         </div>
       </div>
       ${this.getReadinessHTML()}
@@ -779,6 +781,9 @@ export class AnalyticsView {
             <button class="btn btn-secondary" id="btnDownloadReport">${t('analytics.exportReport')}</button>
             <button class="btn btn-ghost" id="btnExportCertificate">${t('analytics.certificate')}</button>
           </div>
+          <p class="certificate-note">${getLocale() === 'en'
+            ? 'The certificate is a self-contained HTML file and opens in print mode.'
+            : 'Sertifikat adalah file HTML mandiri dan dibuka dalam mode cetak.'}</p>
           <details class="report-preview">
             <summary>${t('analytics.reportPreview')}</summary>
             <pre class="report-preview-code">${escapeHTML(this.reportPreviewText())}</pre>
@@ -812,6 +817,7 @@ export class AnalyticsView {
     this.element.querySelector('#btnGenerateReport')?.addEventListener('click', () => this.generateWeeklyReport());
     this.element.querySelector('#btnDownloadReport')?.addEventListener('click', () => this.exportReport());
     this.element.querySelector('#btnExportCertificate')?.addEventListener('click', () => this.exportCertificate());
+    this.element.querySelector('#btnCertificate')?.addEventListener('click', () => this.exportCertificate());
     this.element.querySelectorAll<HTMLButtonElement>('[data-trend-range]').forEach(button => {
       button.addEventListener('click', () => {
         const days = Number(button.dataset.trendRange);
@@ -864,38 +870,140 @@ export class AnalyticsView {
 
   private exportReport(): void { this.generateWeeklyReport(); }
 
-  private exportCertificate(): void {
-    const { percent, estimatedCatScore } = this.readiness;
-    const levelBreakdown = this.topics.map(topic => {
+  /** Local-date filename so it always matches the date printed on the certificate. */
+  private certificateFilename(generatedAt: Date): string {
+    return `sertifikat-kesiapan-${localDateKey(generatedAt)}.html`;
+  }
+
+  /**
+   * Build a fully self-contained certificate. Readiness comes from the same
+   * getStatsByTopic() snapshot the dashboard uses; calculateReadiness() applies
+   * the topic weights to produce the weighted mastery score (×100) while the
+   * unweighted percentage stays comparable with the dashboard and weekly report.
+   */
+  private buildCertificateHTML(generatedAt: Date): string {
+    const { percent, estimatedCatScore, band, coveredTopics, totalTopics } = this.readiness;
+    const topicStats = Object.values(this.masteryStats);
+    const totalQuestions = topicStats.reduce((sum, stat) => sum + stat.total, 0);
+    const masteredCount = topicStats.reduce((sum, stat) => sum + stat.mastered, 0);
+    const learningCount = topicStats.reduce((sum, stat) => sum + stat.learning, 0);
+    const levelLabel = t(`analytics.readinessLevels.${band}`);
+    const bandColor = band === 0 ? '#991b1b' : band === 1 ? '#92400e' : '#047857';
+    const generatedLabel = generatedAt.toLocaleDateString(getLocale() === 'en' ? 'en-US' : 'id-ID', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    });
+    const topicBreakdown = this.topics.map(topic => {
       const level = getMasteryLevel(this.masteryStats[topic.code]?.avgMastery);
-      return `<div class="detail"><div class="detail-value">${getMasteryPercent(level)}%</div><div class="detail-label">${topic.code}</div></div>`;
+      return `<div class="cert-topic">
+        <span class="cert-topic-code">${escapeHTML(topic.code)}</span>
+        <span class="cert-topic-value">${getMasteryPercent(level)}%</span>
+        <span class="cert-topic-label">${escapeHTML(getMasteryLabel(level))}</span>
+      </div>`;
     }).join('');
 
-    const cert = `<!DOCTYPE html>
-<html lang="id"><head><meta charset="UTF-8"><title>Sertifikat Kesiapan Ujian</title><style>
-body { font-family: system-ui; margin: 0; padding: 40px; background: #f8fafc; }
-.cert { max-width: 800px; margin: 0 auto; background: white; border: 4px solid #1e3a5f; border-radius: 16px; padding: 40px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
-.badge { display: inline-block; background: #1e3a5f; color: white; padding: 8px 24px; border-radius: 50px; font-weight: 600; margin-bottom: 24px; }
-h1 { color: #1e3a5f; margin: 0 0 16px; font-size: 32px; }
-.score { font-size: 72px; font-weight: 700; color: #1e3a5f; margin: 24px 0; }
-.level { font-size: 24px; color: #059669; margin-bottom: 32px; font-weight: 600; }
-.details { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; margin: 32px 0; padding: 24px; background: #f8fafc; border-radius: 12px; }
-.detail { text-align: center; }
-.detail-value { font-size: 20px; font-weight: 700; color: #1e3a5f; }
-.detail-label { font-size: 12px; color: #64748b; margin-top: 4px; }
-.footer { margin-top: 32px; padding-top: 24px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 14px; }
-@media print { body { padding: 0; background: white; } .cert { box-shadow: none; border: 4px solid #1e3a5f; } }
+    return `<!DOCTYPE html>
+<html lang="id"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sertifikat Kesiapan Ujian SKB BMKG</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px; background: #f8fafc; color: #0f172a;
+         font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .cert { max-width: 900px; margin: 0 auto; padding: 40px; background: #fff;
+          border: 5px double #1e3a5f; border-radius: 12px; text-align: center; }
+  .cert-brand { color: #0e7490; font-size: 14px; font-weight: 600;
+                letter-spacing: 0.08em; text-transform: uppercase; }
+  .cert h1 { color: #1e3a5f; font-size: clamp(22px, 4vw, 34px); margin: 12px 0; }
+  .cert-intro { color: #55657a; font-size: 14px; max-width: 62ch;
+                margin: 0 auto 24px; line-height: 1.6; }
+  .cert-score { color: #1e3a5f; font-size: clamp(56px, 10vw, 84px);
+                font-weight: 700; line-height: 1; margin: 16px 0 8px; }
+  .cert-score-label { color: #55657a; font-size: 13px; text-transform: uppercase;
+                      letter-spacing: 0.1em; }
+  .cert-level { font-size: 24px; font-weight: 700; margin: 16px 0 4px; }
+  .cert-estimate { color: #55657a; font-size: 14px; margin: 0 0 24px; }
+  .cert-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+                  gap: 12px; margin-bottom: 24px; }
+  .cert-summary-item { padding: 16px 8px; background: #f8fafc; border-radius: 10px; }
+  .cert-summary-value { display: block; color: #1e3a5f; font-size: 28px; font-weight: 700; }
+  .cert-summary-label { display: block; color: #55657a; font-size: 13px; margin-top: 4px; }
+  .cert-topics { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+                 gap: 8px; padding: 20px 0; border-top: 1px solid #e2e8f0;
+                 border-bottom: 1px solid #e2e8f0; }
+  .cert-topic { min-width: 0; }
+  .cert-topic-code { display: block; color: #55657a; font-size: 11px; font-weight: 600; }
+  .cert-topic-value { display: block; color: #1e3a5f; font-size: 18px; font-weight: 700; }
+  .cert-topic-label { display: block; color: #55657a; font-size: 11px; }
+  .cert-footer { margin-top: 24px; color: #55657a; font-size: 12px; line-height: 1.6; }
+  .cert-footer p { margin: 0; }
+  .cert-signature { display: inline-block; min-width: 220px; margin-top: 28px;
+                    border-top: 1px solid #64748b; padding-top: 6px; }
+  @media (max-width: 640px) {
+    body { padding: 12px; }
+    .cert { padding: 24px 16px; }
+    .cert-topics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media print {
+    @page { size: A4 portrait; margin: 12mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { padding: 0; background: #fff; }
+    .cert { max-width: none; border: 5px double #1e3a5f; box-shadow: none; }
+    .cert-topics, .cert-summary { break-inside: avoid; }
+  }
 </style></head><body>
-<div class="cert"><div class="badge">SERTIFIKAT KESIAPAN UJIAN SKB BMKG</div><h1>CPNS BMKG SKB Prep</h1><div class="score">${percent}%</div><div class="level">Estimasi Skor CAT: ${estimatedCatScore}% • ${t(`analytics.readinessLevels.${this.readiness.band}`)}</div><div class="details">${levelBreakdown}</div><div class="footer">Dibuat pada ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} • CPNS BMKG SKB Prep v1.0.0</div></div><script>window.onload = () => window.print();</script></body></html>`;
+<main class="cert">
+  <p class="cert-brand">${escapeHTML(APP_CONFIG.name)}</p>
+  <h1>SERTIFIKAT KESIAPAN UJIAN SKB BMKG</h1>
+  <p class="cert-intro">Diberikan sebagai ringkasan penguasaan materi SKB BMKG berdasarkan latihan dan ujian CAT yang tercatat di aplikasi.</p>
+  <div class="cert-score">${percent}%</div>
+  <div class="cert-score-label">Skor Kesiapan Keseluruhan</div>
+  <p class="cert-level" style="color:${bandColor}">${escapeHTML(levelLabel)}</p>
+  <p class="cert-estimate">Estimasi skor CAT berbobot: <strong>${estimatedCatScore}%</strong> • Topik terlatih: ${coveredTopics}/${totalTopics} • Sesi riwayat: ${this.reportSessions.length}</p>
+  <section class="cert-summary" aria-label="Ringkasan data">
+    <div class="cert-summary-item"><span class="cert-summary-value">${totalQuestions}</span><span class="cert-summary-label">Total soal</span></div>
+    <div class="cert-summary-item"><span class="cert-summary-value">${masteredCount}</span><span class="cert-summary-label">Soal mahir</span></div>
+    <div class="cert-summary-item"><span class="cert-summary-value">${learningCount}</span><span class="cert-summary-label">Soal belajar</span></div>
+  </section>
+  <section class="cert-topics" aria-label="Kemahiran per topik">${topicBreakdown}</section>
+  <footer class="cert-footer">
+    <p>Dibuat pada ${escapeHTML(generatedLabel)}</p>
+    <p>${escapeHTML(APP_CONFIG.name)} v${escapeHTML(APP_CONFIG.version)}</p>
+    <div class="cert-signature">Tanda tangan peserta</div>
+  </footer>
+</main>
+<script>window.addEventListener('load', function () { window.print(); });</script>
+</body></html>`;
+  }
 
-    const blob = new Blob([cert], { type: 'text/html' });
+  /**
+   * Download the certificate and print the generated markup in an isolated
+   * frame. Calling window.print() on the parent would print the dashboard
+   * instead of the certificate, so the embedded script prints the frame/file.
+   */
+  private exportCertificate(): void {
+    this.certificateGeneratedAt = new Date();
+    const html = this.buildCertificateHTML(this.certificateGeneratedAt);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `certificate-readiness-${new Date().toISOString().split('T')[0]}.html`;
-    a.click();
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = this.certificateFilename(this.certificateGeneratedAt);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
     URL.revokeObjectURL(url);
-    showToast('Sertifikat kesiapan digenerate (HTML)', 'success');
+
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none;';
+    frame.srcdoc = html;
+    frame.onload = () => window.setTimeout(() => frame.remove(), 1000);
+    document.body.appendChild(frame);
+
+    showToast(
+      getLocale() === 'en' ? 'Readiness certificate downloaded' : 'Sertifikat kesiapan diunduh',
+      'success'
+    );
   }
 
   async loadData(): Promise<void> {

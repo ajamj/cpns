@@ -2516,6 +2516,19 @@ img {
   font-size: var(--text-xs);
 }
 
+/* Readiness certificate (Phase 4, Task 7). The certificate document itself
+   carries embedded CSS; these rules style the in-app download action. */
+.btn-certificate {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.certificate-note {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
 @media (max-width: 640px) {
   .report-actions .btn { flex: 1 1 auto; }
 }
@@ -2680,6 +2693,7 @@ img {
   .footer-mobile,
   .page-actions,
   .btn,
+  .certificate-note,
   .toast-container,
   .modal-overlay {
     display: none !important;
