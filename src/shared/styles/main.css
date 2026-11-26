@@ -874,6 +874,109 @@ img {
   outline-offset: 2px;
 }
 
+/* Mock exam results review: score, per-topic breakdown and answer cards. */
+.review-score-card {
+  border-color: var(--color-success);
+}
+
+.review-score,
+.review-time,
+.review-topic-score {
+  font-variant-numeric: tabular-nums;
+}
+
+.review-topics-card .card-content {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.review-topic-row:last-child {
+  border-bottom: 0;
+}
+
+.review-navigator {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.review-nav-cell {
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.review-nav-cell:hover {
+  transform: translateY(-1px);
+}
+
+.review-nav-cell:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.review-nav-cell.current {
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+.review-nav-cell.correct {
+  background: var(--color-success);
+  color: var(--color-on-success);
+  border-color: var(--color-success);
+}
+
+.review-nav-cell.incorrect {
+  background: var(--color-danger);
+  color: var(--color-on-danger);
+  border-color: var(--color-danger);
+}
+
+.review-nav-cell.unanswered {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border-color: var(--color-border-strong);
+}
+
+.review-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.review-option.correct {
+  background: var(--color-success-light);
+  border-color: var(--color-success);
+}
+
+.review-option.incorrect {
+  background: var(--color-danger-light);
+  border-color: var(--color-danger);
+}
+
+.review-option-letter {
+  min-width: 24px;
+  font-weight: var(--font-bold);
+}
+
+.review-explanation {
+  padding: var(--space-3);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-md);
+  background: var(--color-info-light);
+}
+
+.review-actions {
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .review-actions { justify-content: stretch; }
+  .review-actions > * { flex: 1 1 auto; text-align: center; }
+}
+
 /* Cards */
 .card {
   background: var(--color-bg-elevated);

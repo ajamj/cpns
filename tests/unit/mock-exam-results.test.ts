@@ -6,9 +6,11 @@ import { describe, expect, it } from 'vitest';
 import {
   answerLetters,
   buildReviewAnswer,
+  copyMockExamConfig,
   formatTimeSpent,
   getReviewTopicStats,
   optionLetter,
+  type MockExamConfig,
 } from '../../src/views/MockExamView';
 import type { Question, TopicCode } from '../../src/shared/types';
 
@@ -63,6 +65,28 @@ describe('mock exam per-topic results', () => {
   it('keeps topics with no answers visible at 0%', () => {
     const stats = getReviewTopicStats([makeQuestion('q1', 'UM-02')], new Map());
     expect(stats['UM-02']).toEqual({ attempted: 0, correct: 0, scorePercent: 0 });
+  });
+});
+
+describe('mock exam retake configuration', () => {
+  it('snapshots the finished exam config without sharing nested state', () => {
+    const config: MockExamConfig = {
+      durationMinutes: 90,
+      questionCount: 100,
+      topicCodes: ['UM-01', 'KH-01'],
+      topicWeights: { 'UM-01': 1, 'KH-01': 1.5 },
+      difficultyMix: { 1: 30, 2: 50, 3: 20 },
+    };
+
+    const snapshot = copyMockExamConfig(config);
+    expect(snapshot).toEqual(config);
+
+    snapshot.topicCodes.pop();
+    snapshot.topicWeights['UM-01'] = 9;
+    snapshot.difficultyMix[1] = 100;
+    expect(config.topicCodes).toHaveLength(2);
+    expect(config.topicWeights['UM-01']).toBe(1);
+    expect(config.difficultyMix[1]).toBe(30);
   });
 });
 

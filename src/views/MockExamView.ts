@@ -30,7 +30,7 @@ import type {
 } from '../shared/types';
 
 /** Exam form values; topicWeights is keyed by the topic codes shown in the form. */
-interface MockExamConfig {
+export interface MockExamConfig {
   durationMinutes: number;
   questionCount: number;
   topicCodes: TopicCode[];
@@ -119,6 +119,16 @@ export function getNavigatorStatus(cell: {
 export function calculateExamScore(correctAnswers: number, totalQuestions: number): number {
   if (totalQuestions <= 0) return 0;
   return Math.round((correctAnswers / totalQuestions) * 100);
+}
+
+/** Snapshot a config for retakes so a new session cannot mutate the old one. */
+export function copyMockExamConfig(config: MockExamConfig): MockExamConfig {
+  return {
+    ...config,
+    topicCodes: [...config.topicCodes],
+    topicWeights: { ...config.topicWeights },
+    difficultyMix: { ...config.difficultyMix },
+  };
 }
 
 export interface ReviewTopicStats {
@@ -499,7 +509,7 @@ export class MockExamView {
             </div>
             <div style="margin-top:var(--space-2);color:var(--color-text-muted);">${t('mock.overallScore')}</div>
             <div style="margin-top:var(--space-4);font-size:var(--text-sm);color:var(--color-text-muted);">
-              Benar: <strong style="color:var(--color-success);">${correctCount}</strong> / ${session.questions.length}
+              ${t('mock.correct')}: <strong style="color:var(--color-success);">${correctCount}</strong> / ${session.questions.length}
             </div>
             <div style="margin-top:var(--space-1);font-size:var(--text-sm);color:var(--color-text-muted);">
               ${t('mock.timeAnalysis')}: <strong class="review-time">${totalTime}</strong>
@@ -531,10 +541,11 @@ export class MockExamView {
         </div>
       </div>
 
-      <div style="display:flex;gap:var(--space-3);justify-content:center;flex-wrap:wrap;margin-top:var(--space-6);">
-        <button class="btn btn-primary" id="btnReviewAgain">${t('mock.title')} Lagi</button>
-        <button class="btn btn-secondary" id="btnExportResults">${t('mock.exportResults')}</button>
-        <a href="#/dashboard" class="btn btn-secondary">${t('nav.dashboard')}</a>
+      <div class="review-actions" style="display:flex;gap:var(--space-3);justify-content:center;flex-wrap:wrap;margin-top:var(--space-6);">
+        <button type="button" class="btn btn-primary" id="btnReviewAgain">${t('mock.retake')}</button>
+        <button type="button" class="btn btn-secondary" id="btnReviewChangeConfig">${t('mock.changeConfig')}</button>
+        <button type="button" class="btn btn-secondary" id="btnExportResults">${t('mock.exportResults')}</button>
+        <button type="button" class="btn btn-secondary" id="btnReviewHome">${t('mock.home')}</button>
         <a href="#/analytics" class="btn btn-secondary">${t('nav.analytics')}</a>
       </div>
     `;
@@ -549,8 +560,8 @@ export class MockExamView {
       <div class="review-topic-row" data-topic="${escapeHTML(code)}" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-border);font-size:var(--text-sm);">
         <span class="badge badge-topic" style="--badge-topic-color:${getSubdomainColor(code)};">${escapeHTML(code)}</span>
         <span class="review-topic-detail">
-          Dijawab: <strong class="review-topic-attempted">${topic.attempted}</strong>
-          • Benar: <strong class="review-topic-correct">${topic.correct}</strong>
+          ${t('mock.answeredCount')}: <strong class="review-topic-attempted">${topic.attempted}</strong>
+          • ${t('mock.correct')}: <strong class="review-topic-correct">${topic.correct}</strong>
           • <strong class="review-topic-score">${topic.scorePercent}%</strong>
         </span>
       </div>
@@ -565,7 +576,13 @@ export class MockExamView {
     const answer = session.answers.get(question.id);
     const isCurrent = index === session.reviewIndex;
     const status = !answer ? 'unanswered' : answer.isCorrect ? 'correct' : 'incorrect';
-    const label = isCurrent ? 'Sedang ditinjau' : status === 'correct' ? 'Benar' : status === 'incorrect' ? 'Salah' : 'Belum dijawab';
+    const label = isCurrent
+      ? t('mock.reviewingNow')
+      : status === 'correct'
+        ? t('mock.correct')
+        : status === 'incorrect'
+          ? t('mock.incorrect')
+          : t('mock.unanswered');
     const style = isCurrent
       ? 'background:var(--color-primary);color:var(--color-on-primary);border-color:var(--color-primary);'
       : status === 'correct'
@@ -587,7 +604,7 @@ export class MockExamView {
     const userAnswer = review.userAnswer;
     const isFlagged = session.flags.has(question.id);
     const isMarked = session.markedReview.has(question.id);
-    const resultLabel = !answer ? 'Belum dijawab' : answer.isCorrect ? 'Benar' : 'Salah';
+    const resultLabel = !answer ? t('mock.unanswered') : answer.isCorrect ? t('mock.correct') : t('mock.incorrect');
     const resultClass = !answer ? 'badge-muted' : answer.isCorrect ? 'badge-success' : 'badge-danger';
 
     return `
@@ -598,7 +615,7 @@ export class MockExamView {
           <span class="badge badge-difficulty-${question.difficulty}">${t('difficulty.' + question.difficulty)}</span>
           ${isFlagged ? `<span class="badge badge-warning">⚑ ${t('mock.flag')}</span>` : ''}
           ${isMarked ? `<span class="badge badge-info">★ ${t('mock.markReview')}</span>` : ''}
-          <span style="font-weight:var(--font-medium);">Soal ${index + 1} / ${session.questions.length}</span>
+          <span style="font-weight:var(--font-medium);">${t('mock.questionNumber')} ${index + 1} / ${session.questions.length}</span>
         </div>
         <div class="review-stem" style="font-weight:var(--font-medium);line-height:var(--leading-relaxed);margin-bottom:var(--space-4);">${renderRichText(question.stem)}</div>
         <div class="review-options" style="display:flex;flex-direction:column;gap:var(--space-2);margin-bottom:var(--space-3);">
@@ -619,15 +636,15 @@ export class MockExamView {
               <div class="${classes.join(' ')}" data-option="${oi}" style="${style}">
                 <span class="review-option-letter" style="font-weight:var(--font-bold);width:24px;display:inline-block;">${optionLetter(oi)}</span>
                 <span class="review-option-text">${renderRichText(opt.text)}</span>
-                ${isCorrect ? ' <span class="badge badge-success">Kunci</span>' : ''}
-                ${isUserWrong ? ' <span class="badge badge-danger">Jawaban Anda</span>' : ''}
+                ${isCorrect ? ` <span class="badge badge-success">${t('mock.answerKey')}</span>` : ''}
+                ${isUserWrong ? ` <span class="badge badge-danger">${t('mock.yourAnswer')}</span>` : ''}
               </div>
             `;
           }).join('')}
         </div>
         <div class="review-answer-summary" style="font-size:var(--text-sm);color:var(--color-text-muted);margin-bottom:var(--space-3);">
-          Jawaban Anda: <strong class="review-user-answer" style="color:var(--color-danger);">${review.userAnswerLetters}</strong>
-          • Kunci: <strong class="review-correct-answer" style="color:var(--color-success);">${review.correctAnswerLetters}</strong>
+          ${t('mock.yourAnswer')}: <strong class="review-user-answer" style="color:var(--color-danger);">${review.userAnswerLetters}</strong>
+          • ${t('mock.answerKey')}: <strong class="review-correct-answer" style="color:var(--color-success);">${review.correctAnswerLetters}</strong>
           ${answer ? ` • Waktu: <strong>${formatTimeSpent(answer.timeMs)}</strong>` : ''}
         </div>
         ${question.explanation ? `
@@ -951,7 +968,9 @@ export class MockExamView {
     this.element.querySelector('#btnFlagExam')?.addEventListener('click', () => this.toggleFlag());
     this.element.querySelector('#btnMarkReviewExam')?.addEventListener('click', () => this.toggleMarkReview());
     this.element.querySelector('#btnSubmitExam')?.addEventListener('click', () => this.confirmSubmit());
-    this.element.querySelector('#btnReviewAgain')?.addEventListener('click', () => this.showConfig());
+    this.element.querySelector('#btnReviewAgain')?.addEventListener('click', () => void this.retakeExam());
+    this.element.querySelector('#btnReviewChangeConfig')?.addEventListener('click', () => this.showConfig());
+    this.element.querySelector('#btnReviewHome')?.addEventListener('click', () => navigate('dashboard'));
     this.bindReviewEvents();
 
     // Keyboard (one listener; addEventListener dedupes the same handler).
@@ -1196,6 +1215,17 @@ export class MockExamView {
     });
     if (attempts.length > 0) await attemptsRepo.bulkAdd(attempts);
     // Mastery updates are handled by finishExam() via updateMasteryForAnswers().
+  }
+
+  /** Restart the exam with the exact configuration used for the finished one. */
+  private async retakeExam(): Promise<void> {
+    const session = this.session;
+    if (!session || session.status !== 'review') return;
+    const config = copyMockExamConfig(session.config);
+    this.stopTimer();
+    // startExam replaces the session only after new questions were selected;
+    // if selection fails the completed results remain on screen.
+    await this.startExam(config);
   }
 
   /** Return from results to a fresh configuration form. */
