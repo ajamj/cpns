@@ -181,6 +181,12 @@ export class QuestionBankView {
     stem: null,
     explanation: null,
   };
+  // Option text stays a lightweight input by default; each row can opt into an
+  // EasyMDE instance for Markdown (formulas/images). Editors are keyed by the
+  // stable option id so add/remove/reorder cannot leak stale instances.
+  private editorCtor: EditorConstructor | null = null;
+  private optionEditors: Map<string, MarkdownEditor> = new Map();
+  private markdownOptionIds: Set<string> = new Set();
 
   constructor(params: Record<string, string>) {
     this.params = params;
@@ -879,6 +885,9 @@ export class QuestionBankView {
     this.formQuestion = existing;
     this.formVersions = id ? await questionsRepo.getVersions(id) : [];
     this.formDraft = existing ? draftFromQuestion(existing) : createEmptyDraft();
+    // A previous dialog may have been removed without going through closeQuestionForm.
+    this.destroyOptionEditors();
+    this.markdownOptionIds.clear();
     // Imported banks may use legacy codes (e.g. TK-01). They remain valid when
     // editing those rows; new questions must use a registered kisi-kisi code.
     this.formValidCodes = new Set([
@@ -1082,8 +1091,11 @@ export class QuestionBankView {
     overlay.querySelector('#qfAddOption')?.addEventListener('click', () => {
       const draft = this.formDraft;
       if (!draft || draft.options.length >= MAX_OPTIONS) return;
+      this.collectOptionTexts(overlay, draft.options);
+      this.destroyOptionEditors();
       draft.options.push({ id: generateId(), text: '', isCorrect: false });
       this.renderOptionRows(overlay);
+      this.mountOptionEditors(overlay);
       overlay.querySelector<HTMLInputElement>(`.option-text[data-index="${draft.options.length - 1}"]`)?.focus();
     });
 
@@ -1103,10 +1115,22 @@ export class QuestionBankView {
       target.closest('.question-option-row')?.classList.toggle('is-correct', target.checked);
     });
     options?.addEventListener('click', event => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.option-remove');
+      const target = event.target as HTMLElement;
+      const toggle = target.closest<HTMLButtonElement>('.option-md-toggle');
+      if (toggle) {
+        void this.toggleOptionMarkdown(overlay, Number(toggle.dataset.index));
+        return;
+      }
+      const button = target.closest<HTMLButtonElement>('.option-remove');
       if (!button || !this.formDraft || this.formDraft.options.length <= MIN_OPTIONS) return;
-      this.formDraft.options.splice(Number(button.dataset.index), 1);
+      const index = Number(button.dataset.index);
+      const removedId = this.formDraft.options[index]?.id;
+      this.collectOptionTexts(overlay, this.formDraft.options);
+      this.destroyOptionEditors();
+      this.formDraft.options.splice(index, 1);
+      if (removedId) this.markdownOptionIds.delete(removedId);
       this.renderOptionRows(overlay);
+      this.mountOptionEditors(overlay);
     });
 
     this.renderOptionRows(overlay);
@@ -1117,6 +1141,7 @@ export class QuestionBankView {
     try {
       const { default: EditorCtor } = await import('easymde');
       const Editor = EditorCtor as unknown as EditorConstructor;
+      this.editorCtor = Editor;
       const draft = this.formDraft;
       const create = (selector: string, value: string, key: 'stem' | 'explanation'): MarkdownEditor | null => {
         const element = overlay.querySelector<HTMLTextAreaElement>(selector);
@@ -1138,10 +1163,74 @@ export class QuestionBankView {
       };
       this.editors.stem = create('#qfStem', draft.stem, 'stem');
       this.editors.explanation = create('#qfExplanation', draft.explanation, 'explanation');
+      this.mountOptionEditors(overlay);
     } catch (error) {
       // The plain textareas remain fully usable if the editor bundle fails.
       console.warn('Markdown editor unavailable, using plain textareas:', error);
     }
+  }
+
+  /** Copy active editor values into the draft before any option re-render. */
+  private collectOptionTexts(overlay: HTMLElement, options: QuestionFormDraft['options']): void {
+    overlay.querySelectorAll<HTMLElement>('.question-option-row').forEach((row, index) => {
+      const option = options[index];
+      if (!option) return;
+      const editor = this.optionEditors.get(option.id);
+      if (editor) option.text = editor.value();
+      else {
+        const input = row.querySelector<HTMLInputElement>('.option-text');
+        if (input) option.text = input.value;
+      }
+    });
+  }
+
+  private destroyOptionEditors(): void {
+    this.optionEditors.forEach(editor => editor.cleanup());
+    this.optionEditors.clear();
+  }
+
+  /** Mount EasyMDE on the option rows switched to Markdown mode. */
+  private mountOptionEditors(overlay: HTMLElement): void {
+    const Editor = this.editorCtor;
+    if (!Editor || this.formOverlay !== overlay || !this.formDraft) return;
+    overlay.querySelectorAll<HTMLTextAreaElement>('.option-text-markdown').forEach(element => {
+      const option = this.formDraft!.options[Number(element.dataset.index)];
+      if (!option || this.optionEditors.has(option.id)) return;
+      const editor = new Editor({
+        element,
+        initialValue: option.text,
+        autoDownloadFontAwesome: false,
+        spellChecker: false,
+        status: false,
+        toolbar: ['bold', 'italic', 'code', '|', 'link', 'preview', 'guide'],
+      });
+      editor.codemirror.on('change', () => {
+        // Look the option up by id: removals shift indices while editors live.
+        const target = this.formDraft?.options.find(item => item.id === option.id);
+        if (target && this.formOverlay === overlay) target.text = editor.value();
+      });
+      this.optionEditors.set(option.id, editor);
+    });
+  }
+
+  private async toggleOptionMarkdown(overlay: HTMLElement, index: number): Promise<void> {
+    const draft = this.formDraft;
+    const option = draft?.options[index];
+    if (!draft || !option) return;
+    this.collectOptionTexts(overlay, draft.options);
+    this.destroyOptionEditors();
+    if (this.markdownOptionIds.has(option.id)) {
+      this.markdownOptionIds.delete(option.id);
+    } else {
+      if (!this.editorCtor) {
+        showToast(t('qb.markdownUnavailable'), 'warning');
+        this.renderOptionRows(overlay);
+        return;
+      }
+      this.markdownOptionIds.add(option.id);
+    }
+    this.renderOptionRows(overlay);
+    this.mountOptionEditors(overlay);
   }
 
   private readEditorValue(overlay: HTMLElement, key: 'stem' | 'explanation'): string {
@@ -1164,6 +1253,7 @@ export class QuestionBankView {
     // CodeMirror measures its container on init; refresh after a hidden panel
     // becomes visible so the editor is not stuck at zero width.
     if (name === 'stem') this.editors.stem?.codemirror.refresh();
+    if (name === 'options') this.optionEditors.forEach(editor => editor.codemirror.refresh());
     if (name === 'explanation') this.editors.explanation?.codemirror.refresh();
   }
 
@@ -1173,11 +1263,19 @@ export class QuestionBankView {
     if (!draft || !container) return;
     container.innerHTML = draft.options.map((option, index) => {
       const letter = String.fromCharCode(65 + index);
+      const isMarkdown = this.markdownOptionIds.has(option.id);
+      const label = escapeHTML(t('qb.optionPlaceholder', { letter }));
+      const editorLabel = escapeHTML(t(isMarkdown ? 'qb.optionPlain' : 'qb.optionMarkdown'));
+      // A textarea is only a mount point: EasyMDE replaces it with CodeMirror.
+      const textField = isMarkdown
+        ? `<textarea class="form-textarea option-text-markdown" data-index="${index}" aria-label="${label}">${escapeHTML(option.text)}</textarea>`
+        : `<input type="text" class="form-input option-text" data-index="${index}" value="${escapeHTML(option.text)}" aria-label="${label}" placeholder="${label}">`;
       return `
-        <div class="question-option-row ${option.isCorrect ? 'is-correct' : ''}" data-option-index="${index}">
+        <div class="question-option-row ${option.isCorrect ? 'is-correct' : ''}" data-option-index="${index}" data-option-id="${escapeHTML(option.id)}">
           <span class="option-letter" aria-hidden="true">${letter}</span>
           <input type="checkbox" class="form-check-input option-correct" data-index="${index}" aria-label="${escapeHTML(t('qb.correctOption', { letter }))}" ${option.isCorrect ? 'checked' : ''}>
-          <input type="text" class="form-input option-text" data-index="${index}" value="${escapeHTML(option.text)}" aria-label="${escapeHTML(t('qb.optionPlaceholder', { letter }))}" placeholder="${escapeHTML(t('qb.optionPlaceholder', { letter }))}">
+          <div class="option-editor-cell">${textField}</div>
+          <button type="button" class="btn btn-ghost btn-sm option-md-toggle" data-index="${index}" aria-pressed="${isMarkdown}" aria-label="${editorLabel}" title="${editorLabel}">${isMarkdown ? 'Aa' : 'M↓'}</button>
           <button type="button" class="btn btn-ghost btn-icon btn-sm option-remove" data-index="${index}" aria-label="${escapeHTML(t('qb.removeOption'))} ${letter}" ${draft.options.length <= MIN_OPTIONS ? 'disabled' : ''}>×</button>
         </div>`;
     }).join('');
@@ -1198,10 +1296,13 @@ export class QuestionBankView {
       const flag = input.dataset.flag as keyof QuestionFormDraft['flags'] | undefined;
       if (flag) draft.flags[flag] = input.checked;
     });
-    // Rebuild from the rendered rows so option removals shift indices cleanly.
+    // Editor rows have no visible `.option-text` input: read their current
+    // values first, then rebuild from the rendered rows so option removals
+    // shift indices cleanly.
+    this.collectOptionTexts(overlay, draft.options);
     draft.options = Array.from(overlay.querySelectorAll<HTMLElement>('.question-option-row')).map((row, index) => ({
       id: draft.options[index]?.id ?? generateId(),
-      text: row.querySelector<HTMLInputElement>('.option-text')?.value ?? '',
+      text: draft.options[index]?.text ?? '',
       isCorrect: row.querySelector<HTMLInputElement>('.option-correct')?.checked ?? false,
     }));
   }
@@ -1307,6 +1408,8 @@ export class QuestionBankView {
   }
 
   private closeQuestionForm(): void {
+    this.destroyOptionEditors();
+    this.markdownOptionIds.clear();
     this.editors.stem?.cleanup();
     this.editors.explanation?.cleanup();
     this.editors = { stem: null, explanation: null };

@@ -161,4 +161,17 @@ describe('question draft persistence mapping', () => {
     expect(updated.tags).toEqual(['geografi', 'ibukota']);
     expect(updated.source).toBe('BMKG 2024');
   });
+
+  it('keeps Markdown syntax typed into option editors on save and re-edit', () => {
+    const draft = validDraft();
+    draft.options[0]!.text = '**Jakarta** (`IBU`)';
+    draft.options[1]!.text = 'Bandung';
+    expect(validateQuestionDraft(draft, VALID_CODES)).toEqual({});
+
+    const saved = draftToQuestion(draft);
+    expect(saved.options[0]!.text).toBe('**Jakarta** (`IBU`)');
+    const reopened = draftFromQuestion(saved);
+    expect(reopened.options[0]!.text).toBe('**Jakarta** (`IBU`)');
+    expect(validateQuestionDraft(reopened, VALID_CODES)).toEqual({});
+  });
 });

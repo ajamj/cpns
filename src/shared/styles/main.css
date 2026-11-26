@@ -1254,7 +1254,7 @@ img {
 }
 .question-option-row {
   display: grid;
-  grid-template-columns: 28px 32px minmax(0, 1fr) 44px;
+  grid-template-columns: 28px 32px minmax(0, 1fr) 44px 44px;
   align-items: center;
   gap: var(--space-2);
 }
@@ -1262,11 +1262,16 @@ img {
   font-weight: var(--font-semibold);
   color: var(--color-text-muted);
 }
+.option-editor-cell { min-width: 0; }
 .question-option-row.is-correct .option-text {
   border-color: var(--color-success);
   box-shadow: 0 0 0 1px var(--color-success);
 }
+.question-option-row.is-correct .option-editor-cell .CodeMirror {
+  border-color: var(--color-success);
+}
 .question-form-overlay .CodeMirror { height: 220px; }
+.question-option-row .CodeMirror { height: 96px; font-size: var(--text-sm); }
 
 /* Version history (Phase 2 Task 8) */
 .question-version-list {
@@ -1296,8 +1301,9 @@ img {
   overflow-wrap: anywhere;
 }
 @media (max-width: 640px) {
-  .question-option-row { grid-template-columns: 20px 28px minmax(0, 1fr) 40px; }
+  .question-option-row { grid-template-columns: 20px 28px minmax(0, 1fr) 40px 40px; }
   .question-form-overlay .CodeMirror { height: 180px; }
+  .question-option-row .CodeMirror { height: 120px; }
 }
 
 /* Toasts */
