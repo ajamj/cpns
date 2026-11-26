@@ -377,7 +377,9 @@ export class ImportView {
       });
 
       if (result.restored) {
-        showToast(`${t('import.success', { count: result.counts.questions ?? 0 })}`, 'success');
+        const success = `${t('import.success', { count: result.counts.questions ?? 0 })}`;
+        const details = result.warnings.length ? ` — ${result.warnings.join(', ')}` : '';
+        showToast(`${success}${details}`, result.warnings.length ? 'warning' : 'success');
         this.hidePreview();
       } else {
         showToast(result.errors.join(', '), 'error');

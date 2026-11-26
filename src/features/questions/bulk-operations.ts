@@ -58,17 +58,31 @@ export function applyBulkUpdate(
   };
 }
 
-/** One row per selected question, with options in columns A–E (SRS §3.2.3). */
+/**
+ * One row per selected question, with options in columns A–E (SRS §3.2.3).
+ * The trailing columns are optional on import: older CsvRow exports stay valid,
+ * while exports from this app roundtrip with full field fidelity.
+ */
+export const QUESTIONS_CSV_HEADER = [
+  'id', 'topicCode', 'stem', 'optionA', 'optionB', 'optionC', 'optionD', 'optionE',
+  'correctAnswer', 'explanation', 'difficulty', 'source', 'tags',
+  'bookmarked', 'needsReview', 'disputed',
+  'metadata.createdAt', 'metadata.updatedAt', 'metadata.version', 'metadata.author',
+  'statistics.totalAttempts', 'statistics.correctAttempts', 'statistics.avgTimeMs',
+  'statistics.lastAttemptedAt', 'statistics.masteryLevel',
+  'versions', 'deletedAt', 'optionIds',
+] as const;
+
 export function questionsToCSV(questions: readonly Question[]): string {
-  const rows: string[][] = [[
-    'id', 'topicCode', 'stem', 'optionA', 'optionB', 'optionC', 'optionD', 'optionE',
-    'correctAnswer', 'explanation', 'difficulty', 'source', 'tags',
-    'bookmarked', 'needsReview', 'disputed',
-  ]];
+  const rows: string[][] = [[...QUESTIONS_CSV_HEADER]];
 
   for (const q of questions) {
-    const options = (q.options ?? []).map(option => option.text);
+    const options = (q.options ?? []).map(option => option?.text ?? '');
+    const optionIds = (q.options ?? []).map(option => option?.id ?? '');
     while (options.length < 5) options.push('');
+    while (optionIds.length < 5) optionIds.push('');
+    const stats = q.statistics;
+    const metadata = q.metadata;
     rows.push([
       q.id,
       q.topicCode,
@@ -86,6 +100,18 @@ export function questionsToCSV(questions: readonly Question[]): string {
       String(Boolean(q.flags?.bookmarked)),
       String(Boolean(q.flags?.needsReview)),
       String(Boolean(q.flags?.disputed)),
+      metadata?.createdAt ?? '',
+      metadata?.updatedAt ?? '',
+      String(metadata?.version ?? ''),
+      metadata?.author ?? '',
+      String(stats?.totalAttempts ?? 0),
+      String(stats?.correctAttempts ?? 0),
+      String(stats?.avgTimeMs ?? 0),
+      stats?.lastAttemptedAt ?? '',
+      String(stats?.masteryLevel ?? 0),
+      q.versions?.length ? JSON.stringify(q.versions) : '',
+      q.deletedAt ?? '',
+      optionIds.join(';'),
     ]);
   }
 

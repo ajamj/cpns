@@ -108,14 +108,15 @@ export const backupRepo = {
     restoreSettings?: boolean;
     /** Per-question overrides selected in the import preview modal. */
     strategyFor?: (question: Question) => MergeStrategy | undefined;
-  } = {}): Promise<{ restored: boolean; counts: Record<string, number>; errors: string[] }> {
+  } = {}): Promise<{ restored: boolean; counts: Record<string, number>; errors: string[]; warnings: string[] }> {
     const errors: string[] = [];
+    const warnings: string[] = [];
     const counts: Record<string, number> = {};
 
     try {
       const validation = validateBackup(exportData);
       if (!validation.backup) {
-        return { restored: false, counts: {}, errors: validation.issues.map(i => `${i.path}: ${i.message}`) };
+        return { restored: false, counts: {}, errors: validation.issues.map(i => `${i.path}: ${i.message}`), warnings: [] };
       }
       const backup = validation.backup;
       // Only tables explicitly present in the file may be replaced. A plain
@@ -131,8 +132,9 @@ export const backupRepo = {
           options.strategyFor
         );
         counts.questions = result.imported;
-        if (result.skipped > 0) errors.push(`${result.skipped} soal dilewati`);
-        if (result.conflicts > 0) errors.push(`${result.conflicts} konflik (smart merge diterapkan)`);
+        // Skips and smart-merge conflicts are expected outcomes, not failures.
+        if (result.skipped > 0) warnings.push(`${result.skipped} soal dilewati`);
+        if (result.conflicts > 0) warnings.push(`${result.conflicts} konflik (smart merge diterapkan)`);
       }
 
       // Restore sessions
@@ -166,10 +168,10 @@ export const backupRepo = {
       }
 
       eventBus.emit('backup:restored', backup);
-      return { restored: true, counts, errors };
+      return { restored: true, counts, errors, warnings };
     } catch (error) {
       errors.push(`Restore failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      return { restored: false, counts: {}, errors };
+      return { restored: false, counts: {}, errors, warnings };
     }
   },
 

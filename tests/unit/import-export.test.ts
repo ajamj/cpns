@@ -183,6 +183,33 @@ describe('CSV roundtrip', () => {
     // The repository wrapper uses the same validated parser.
     expect(await backupRepo.importFromCSV(csv)).toHaveLength(1);
   });
+
+  it('roundtrips metadata, statistics, version snapshots and option ids', () => {
+    const original = makeQuestion({
+      statistics: {
+        totalAttempts: 4,
+        correctAttempts: 3,
+        avgTimeMs: 1250.5,
+        lastAttemptedAt: '2024-02-02T00:00:00.000Z',
+        masteryLevel: 2,
+      },
+      versions: [makeQuestion({ id: 'q-1-prev', stem: 'Versi lama', versions: undefined })],
+      deletedAt: '2024-04-01T00:00:00.000Z',
+    });
+    const parsed = parseImportText(questionsToCSV([original]), 'questions.csv');
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.questions[0]).toEqual(original);
+  });
+
+  it('accepts semicolon-separated multi-select answers from the analytics CSV', () => {
+    const csv = [
+      'id,topicCode,stem,optionA,optionB,correctAnswer,difficulty',
+      'multi,UM-01,Pilih dua,A,B,"A;B",2',
+    ].join('\n');
+    const parsed = parseImportText(csv, 'answers.csv');
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.questions[0]?.correctAnswer).toEqual([0, 1]);
+  });
 });
 
 describe('smart merge preview', () => {
@@ -208,6 +235,17 @@ describe('smart merge preview', () => {
     expect(result).toMatchObject({ imported: 2, skipped: 0 });
     expect((await questionsRepo.getById('q-1'))?.stem).toBe('Stem baru');
     expect(await questionsRepo.getById('q-2')).toBeDefined();
+  });
+
+  it('reports skips and smart-merge conflicts as warnings rather than errors', async () => {
+    store.set('q-1', makeQuestion());
+    const result = await backupRepo.restoreBackup(
+      makeBackup([makeQuestion({ stem: 'Stem baru' }), makeQuestion({ id: 'q-2' })]),
+      { mergeStrategy: 'smart' }
+    );
+    expect(result.restored).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.join(' ')).toContain('konflik');
   });
 
   it('does not clear progress tables when importing questions only', async () => {
