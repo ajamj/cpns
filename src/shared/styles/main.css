@@ -767,6 +767,48 @@ img {
   min-height: 44px;
 }
 
+/* Mock exam navigator: status classes carry the color coding in one place. */
+.nav-cell {
+  aspect-ratio: 1;
+  border: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.nav-cell.answered {
+  background: var(--color-success);
+  color: var(--color-on-success);
+  border-color: var(--color-success);
+}
+
+.nav-cell.flagged {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.nav-cell.marked {
+  color: var(--color-info);
+  border-color: var(--color-info);
+}
+
+/* Answered + flagged keeps green fill and a warning outline. */
+.nav-cell.answered.flagged {
+  background: var(--color-success);
+  color: var(--color-on-success);
+  border-color: var(--color-warning);
+}
+
+/* Current always wins: the header badge still shows flag/review marks. */
+.nav-cell.current,
+.nav-cell.current.answered.flagged {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+
 /* Mock exam: progress, countdown alerts and question affordances. */
 .exam-progress {
   width: 120px;
@@ -788,6 +830,21 @@ img {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Countdown digits stay aligned while the warning levels escalate. */
+.timer {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.timer.warning { color: var(--color-info); }
+.timer.danger { color: var(--color-warning); }
+.timer.critical {
+  color: var(--color-danger);
+  animation: pulse 1s infinite;
 }
 
 .timer-alert {

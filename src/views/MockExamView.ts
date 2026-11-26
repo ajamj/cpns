@@ -12,7 +12,12 @@ import {
   getTopicWeight,
 } from '../features/kisi-kisi/registry';
 import { navigate, t } from '../core/i18n';
-import { eventBus } from '../core/events';
+import {
+  eventBus,
+  emitMockAutoSubmitted,
+  emitMockTimerWarning,
+  emitSessionCompleted,
+} from '../core/events';
 import { generateId, nowISO, formatTime, downloadJSON } from '../core/utils';
 import { APP_CONFIG } from '../core/config';
 import type {
@@ -70,6 +75,29 @@ export function getTimerWarningLevel(remainingMs: number): TimerWarningLevel {
   if (remainingMs <= 5 * 60_000) return 'danger';
   if (remainingMs <= 15 * 60_000) return 'warning';
   return 'normal';
+}
+
+/** Warning text for a countdown value; injectable translator keeps this testable. */
+export function timerWarningMessage(
+  remainingMs: number,
+  translate: (key: string) => string = t
+): string {
+  switch (getTimerWarningLevel(remainingMs)) {
+    case 'critical': return translate('mock.warning1');
+    case 'danger': return translate('mock.warning5');
+    case 'warning': return translate('mock.warning15');
+    default: return '';
+  }
+}
+
+/** Confirmation counts derive from session state, not from rendered DOM nodes. */
+export function getSubmitCounts(
+  questions: ReadonlyArray<{ id: string }>,
+  answers: ReadonlyMap<string, unknown>,
+  flags: ReadonlySet<string>
+): { answered: number; unanswered: number; flagged: number } {
+  const answered = questions.filter(question => answers.has(question.id)).length;
+  return { answered, unanswered: questions.length - answered, flagged: flags.size };
 }
 
 export type NavigatorStatus = 'current' | 'flagged' | 'marked' | 'answered' | 'unvisited';
@@ -187,6 +215,8 @@ export class MockExamView {
   private questionStartTime = 0;
   private allQuestions: Question[] = [];
   private autoSubmitted = false;
+  /** Last announced countdown level; warnings are emitted once per threshold. */
+  private lastWarningLevel: TimerWarningLevel = 'normal';
   private routeHandler: ((route: { view: string }) => void) | null = null;
 
   constructor(params: Record<string, string>) {
@@ -336,7 +366,6 @@ export class MockExamView {
     const timeStr = formatTime(this.session.timeRemainingMs);
     const warningLevel = getTimerWarningLevel(this.session.timeRemainingMs);
     const warningClass = warningLevel === 'normal' ? '' : ` ${warningLevel}`;
-    const warningStyle = this.timerStyle(warningLevel);
 
     return `
       <div class="exam-header" style="position:fixed;top:0;left:0;right:0;background:var(--color-bg-elevated);border-bottom:1px solid var(--color-border);padding:var(--space-3) var(--space-4);z-index:var(--z-sticky);box-shadow:var(--shadow-md);">
@@ -351,7 +380,7 @@ export class MockExamView {
             <span class="exam-progress-label">${this.session.currentIndex + 1} / ${this.session.questions.length}</span>
           </div>
           <div style="display:flex;align-items:center;gap:var(--space-4);">
-            <div class="timer${warningClass}" data-warning-level="${warningLevel}" role="timer" aria-label="${t('mock.duration')}" aria-live="off" style="font-size:var(--text-2xl);font-weight:var(--font-bold);font-family:var(--font-mono);font-variant-numeric:tabular-nums;${warningStyle}">
+            <div class="timer${warningClass}" data-warning-level="${warningLevel}" role="timer" aria-label="${t('mock.duration')}" aria-live="off">
               ${timeStr}
             </div>
             ${warningLevel === 'normal' ? '' : `<div class="timer-alert ${warningLevel}" data-timer-alert="${warningLevel}" role="presentation">${escapeHTML(this.getTimerWarning())}</div>`}
@@ -438,27 +467,10 @@ export class MockExamView {
     const status = getNavigatorStatus({ current: isCurrent, flagged: isFlagged, markedReview: isMarked, answered: isAnswered });
     const statusLabel = t(`mock.nav.${status}`);
     // An answered question that is also flagged keeps the green fill and gains
-    // a warning border, so neither state is lost.
-    const style = status === 'current'
-      ? 'background:var(--color-primary);color:var(--color-on-primary);border-color:var(--color-primary);'
-      : isFlagged && isAnswered
-        ? 'background:var(--color-success);color:var(--color-on-success);border-color:var(--color-warning);'
-        : isFlagged
-          ? 'border-color:var(--color-warning);color:var(--color-warning);'
-          : isMarked
-            ? 'border-color:var(--color-info);color:var(--color-info);'
-            : isAnswered
-              ? 'background:var(--color-success);color:var(--color-on-success);border-color:var(--color-success);'
-              : 'background:var(--color-bg);color:var(--color-text-muted);border-color:var(--color-border-strong);';
-    const extraClass = isFlagged && isAnswered ? ' answered flagged' : '';
-    return `<button type="button" class="nav-cell ${status}${extraClass}" data-index="${index}" data-status="${status}" aria-label="${escapeHTML(t('mock.navigator'))} ${index + 1}: ${escapeHTML(statusLabel)}" aria-current="${isCurrent ? 'true' : 'false'}" style="min-width:44px;min-height:44px;aspect-ratio:1;border:2px solid;border-radius:var(--radius-md);font-weight:var(--font-semibold);font-size:var(--text-sm);${style}">${index + 1}</button>`;
-  }
-
-  private timerStyle(level: TimerWarningLevel): string {
-    if (level === 'critical') return 'color:var(--color-danger);animation:pulse 1s infinite;';
-    if (level === 'danger') return 'color:var(--color-warning);';
-    if (level === 'warning') return 'color:var(--color-info);';
-    return '';
+    // a warning border; the CSS design system resolves the combined state.
+    const classes = ['nav-cell', status];
+    if (isFlagged && isAnswered) classes.push('answered', 'flagged');
+    return `<button type="button" class="${classes.join(' ')}" data-index="${index}" data-status="${status}" aria-label="${escapeHTML(t('mock.navigator'))} ${index + 1}: ${escapeHTML(statusLabel)}" aria-current="${isCurrent ? 'true' : 'false'}">${index + 1}</button>`;
   }
 
   private getReviewHTML(): string {
@@ -732,6 +744,7 @@ export class MockExamView {
       status: 'active',
     };
     this.autoSubmitted = false;
+    this.lastWarningLevel = 'normal';
 
     this.questionStartTime = startedAt;
     this.element?.setAttribute('data-exam-active', 'true');
@@ -766,14 +779,22 @@ export class MockExamView {
   }
 
   private updateTimerDisplay(): void {
-    if (!this.session || !this.element) return;
-    const level = getTimerWarningLevel(this.session.timeRemainingMs);
+    const session = this.session;
+    if (!session || !this.element) return;
+    const level = getTimerWarningLevel(session.timeRemainingMs);
     const timerEl = this.element.querySelector<HTMLElement>('.timer');
     if (timerEl) {
-      timerEl.textContent = formatTime(this.session.timeRemainingMs);
+      timerEl.textContent = formatTime(session.timeRemainingMs);
       timerEl.className = `timer${level === 'normal' ? '' : ` ${level}`}`;
       timerEl.dataset.warningLevel = level;
-      timerEl.style.cssText = 'font-size:var(--text-2xl);font-weight:var(--font-bold);font-family:var(--font-mono);font-variant-numeric:tabular-nums;' + this.timerStyle(level);
+    }
+
+    // Announce and publish each threshold only once, not on every tick.
+    if (level !== this.lastWarningLevel) {
+      this.lastWarningLevel = level;
+      if (level !== 'normal') {
+        emitMockTimerWarning(session.id, level, session.timeRemainingMs);
+      }
     }
 
     const warning = this.getTimerWarning();
@@ -798,20 +819,18 @@ export class MockExamView {
     if (warningEl && warningEl.textContent !== warning) warningEl.textContent = warning;
   }
 
-  /** Thresholds are announced once per level, never on every tick. */
+  /** Warning copy shared with the live region and the visible timer alert. */
   private getTimerWarning(): string {
     if (!this.session) return '';
-    switch (getTimerWarningLevel(this.session.timeRemainingMs)) {
-      case 'critical': return t('mock.warning1');
-      case 'danger': return t('mock.warning5');
-      case 'warning': return t('mock.warning15');
-      default: return '';
-    }
+    return timerWarningMessage(this.session.timeRemainingMs);
   }
 
   private autoSubmit(): void {
-    if (!this.session || this.session.status === 'review') return;
+    const session = this.session;
+    // The deadline can fire after a manual submit while a stale tick is pending.
+    if (!session || session.status !== 'active') return;
     this.autoSubmitted = true;
+    emitMockAutoSubmitted(session.id, session.timeRemainingMs);
     this.stopTimer();
     void this.finishExam();
   }
@@ -1067,12 +1086,15 @@ export class MockExamView {
   private confirmSubmit(): void {
     const session = this.session;
     if (!session || session.status !== 'active') return;
-    const unanswered = session.questions.filter(q => !session.answers.has(q.id)).length;
-    const flagged = session.flags.size;
+    const { unanswered, flagged } = getSubmitCounts(
+      session.questions,
+      session.answers,
+      session.flags
+    );
 
     // Keep the native blocking dialog: during a CAT the countdown must not be
     // bypassed by a background modal, and the counts are shown before commit.
-    const message = `${t('mock.confirmSubmit', { unanswered, flagged })}\nAre you sure you want to submit?`;
+    const message = `${t('mock.confirmSubmit', { unanswered, flagged })}\n${t('mock.confirmQuestion')}`;
     if (!window.confirm(message)) return;
     void this.finishExam();
   }
@@ -1153,6 +1175,8 @@ export class MockExamView {
       summary,
     };
     await sessionsRepo.put(sessionRecord);
+    // Let analytics/dashboard react to a completed exam without polling Dexie.
+    emitSessionCompleted(sessionRecord);
 
     const attempts: Attempt[] = [];
     session.questions.forEach(q => {
@@ -1179,6 +1203,7 @@ export class MockExamView {
     this.stopTimer();
     this.session = null;
     this.autoSubmitted = false;
+    this.lastWarningLevel = 'normal';
     if (!this.element) return;
     this.element.removeAttribute('data-exam-active');
     this.element.innerHTML = this.getConfigHTML();

@@ -21,6 +21,12 @@ export type AppEvents = {
   'session:completed': Session;
   'session:paused': Session;
   'session:resumed': Session;
+  'mock:timer-warning': {
+    sessionId: string;
+    level: 'warning' | 'danger' | 'critical';
+    remainingMs: number;
+  };
+  'mock:auto-submitted': { sessionId: string; remainingMs: number };
   'attempt:recorded': Attempt;
   'mastery:updated': { questionId: string; oldLevel: MasteryLevel; newLevel: MasteryLevel };
   'settings:changed': { key: SettingKey; value: unknown };
@@ -66,6 +72,20 @@ export function emitQuestionBulkUpdated(questions: Question[]): void {
 
 export function emitSessionCompleted(session: Session): void {
   eventBus.emit('session:completed', session);
+}
+
+/** Fired once per countdown threshold (15/5/1 minutes) during a mock exam. */
+export function emitMockTimerWarning(
+  sessionId: string,
+  level: 'warning' | 'danger' | 'critical',
+  remainingMs: number
+): void {
+  eventBus.emit('mock:timer-warning', { sessionId, level, remainingMs });
+}
+
+/** Fired when the countdown reaches zero and the exam is submitted automatically. */
+export function emitMockAutoSubmitted(sessionId: string, remainingMs: number): void {
+  eventBus.emit('mock:auto-submitted', { sessionId, remainingMs });
 }
 
 export function emitAttemptRecorded(attempt: Attempt): void {

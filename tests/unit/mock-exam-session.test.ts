@@ -8,8 +8,15 @@ import {
   calculateExamScore,
   getNavigatorStatus,
   getRemainingMs,
+  getSubmitCounts,
   getTimerWarningLevel,
+  timerWarningMessage,
 } from '../../src/views/MockExamView';
+import {
+  eventBus,
+  emitMockAutoSubmitted,
+  emitMockTimerWarning,
+} from '../../src/core/events';
 
 describe('mock exam countdown', () => {
   const endsAt = 90 * 60_000;
@@ -49,5 +56,57 @@ describe('mock exam scoring', () => {
     expect(calculateExamScore(0, 0)).toBe(0);
     expect(calculateExamScore(3, 4)).toBe(75);
     expect(calculateExamScore(42, 60)).toBe(70);
+  });
+});
+
+describe('mock exam submit confirmation counts', () => {
+  it('counts answered, unanswered and flagged questions from session state', () => {
+    const questions = [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }];
+    const answers = new Map([['q1', { isCorrect: true }], ['q3', { isCorrect: false }]]);
+    const flags = new Set(['q2', 'q3']);
+    expect(getSubmitCounts(questions, answers, flags)).toEqual({
+      answered: 2,
+      unanswered: 1,
+      flagged: 2,
+    });
+  });
+
+  it('handles an unstarted exam', () => {
+    expect(getSubmitCounts([{ id: 'q1' }], new Map(), new Set())).toEqual({
+      answered: 0,
+      unanswered: 1,
+      flagged: 0,
+    });
+  });
+});
+
+describe('mock exam warning copy', () => {
+  const key = (translationKey: string) => translationKey;
+
+  it('maps each threshold to its translated warning key', () => {
+    expect(timerWarningMessage(90 * 60_000, key)).toBe('');
+    expect(timerWarningMessage(15 * 60_000, key)).toBe('mock.warning15');
+    expect(timerWarningMessage(5 * 60_000, key)).toBe('mock.warning5');
+    expect(timerWarningMessage(60_000, key)).toBe('mock.warning1');
+  });
+});
+
+describe('mock exam events', () => {
+  it('publishes timer thresholds and automatic submission', () => {
+    const warnings: Array<{ sessionId: string; level: string; remainingMs: number }> = [];
+    const auto: Array<{ sessionId: string; remainingMs: number }> = [];
+    const onWarning = (payload: (typeof warnings)[number]) => warnings.push(payload);
+    const onAuto = (payload: (typeof auto)[number]) => auto.push(payload);
+    eventBus.on('mock:timer-warning', onWarning);
+    eventBus.on('mock:auto-submitted', onAuto);
+
+    emitMockTimerWarning('session-1', 'danger', 4 * 60_000);
+    emitMockAutoSubmitted('session-1', 0);
+
+    eventBus.off('mock:timer-warning', onWarning);
+    eventBus.off('mock:auto-submitted', onAuto);
+
+    expect(warnings).toEqual([{ sessionId: 'session-1', level: 'danger', remainingMs: 240_000 }]);
+    expect(auto).toEqual([{ sessionId: 'session-1', remainingMs: 0 }]);
   });
 });
