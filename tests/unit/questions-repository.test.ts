@@ -115,6 +115,21 @@ describe('questionsRepo query methods', () => {
     expect(result.map(q => q.id).sort()).toEqual(['q-1', 'q-3']);
   });
 
+  it('getByDifficulty filters by difficulty and hides soft-deleted rows', async () => {
+    expect((await questionsRepo.getByDifficulty(1)).map(q => q.id)).toEqual(['q-1', 'q-3']);
+    expect((await questionsRepo.getByDifficulty(2)).map(q => q.id)).toEqual(['q-2']);
+    expect(await questionsRepo.getByDifficulty(3)).toEqual([]);
+  });
+
+  it('update replaces a question with version history like put', async () => {
+    const current = await questionsRepo.getById('q-1');
+    await questionsRepo.update(makeQuestion({ ...current!, stem: 'Updated stem' }));
+    const saved = await questionsRepo.getById('q-1');
+    expect(saved?.stem).toBe('Updated stem');
+    expect(saved?.metadata.version).toBe(2);
+    expect(saved?.versions?.[0]?.stem).toBe('IBUKOTA Indonesia?');
+  });
+
   it('getByIds preserves input order, dedupes IDs and hides deleted rows', async () => {
     const result = await questionsRepo.getByIds(['q-3', 'q-4', 'q-1', 'q-3', 'missing']);
     expect(result.map(q => q.id)).toEqual(['q-3', 'q-1']);

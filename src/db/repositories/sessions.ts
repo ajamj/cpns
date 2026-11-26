@@ -75,12 +75,14 @@ export const sessionsRepo = {
     return db.sessions.orderBy('startedAt').reverse().limit(limit).toArray();
   },
 
+  /** Completed sessions, newest completion first (null/undefined keys are not indexed). */
   async getCompleted(): Promise<Session[]> {
-    return db.sessions
-      .where('completedAt')
-      .notEqual(null as any)
-      .reverse()
-      .toArray();
+    const completed = (await db.sessions.toArray()).filter(
+      session => typeof session.completedAt === 'string' && session.completedAt.length > 0
+    );
+    return completed.sort((a, b) =>
+      new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime()
+    );
   },
 
   async updateSummary(sessionId: string, summary: SessionSummary): Promise<void> {

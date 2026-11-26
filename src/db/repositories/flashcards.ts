@@ -29,6 +29,10 @@ export function flashcardsToCSV(cards: readonly Flashcard[]): string {
   return toCSV(rows);
 }
 
+function cardsForQuestion(questionId: string): Promise<Flashcard[]> {
+  return db.flashcards.where('questionId').equals(questionId).toArray();
+}
+
 export const flashcardsRepo = {
   async getAll(): Promise<Flashcard[]> {
     return db.flashcards.orderBy('dueDate').toArray();
@@ -146,7 +150,12 @@ export const flashcardsRepo = {
   },
 
   async getByQuestion(questionId: string): Promise<Flashcard[]> {
-    return db.flashcards.where('questionId').equals(questionId).toArray();
+    return cardsForQuestion(questionId);
+  },
+
+  /** Explicit alias for getByQuestion(), matching the repository naming convention. */
+  async getByQuestionId(questionId: string): Promise<Flashcard[]> {
+    return cardsForQuestion(questionId);
   },
 
   async getCount(): Promise<number> {

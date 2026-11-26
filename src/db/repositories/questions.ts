@@ -323,6 +323,16 @@ export function questionsToExportCSV(questions: readonly Question[]): string {
   return toCSV(rows);
 }
 
+/** Shared implementation for put()/update(): versioned replace + event. */
+async function putQuestion(question: Question): Promise<string> {
+  // Every edit bumps the version and stores the pre-edit snapshot.
+  const existing = await db.questions.get(question.id);
+  prepareVersionedUpdate(question, existing);
+  await db.questions.put(question);
+  emitQuestionUpdated(question);
+  return question.id;
+}
+
 export const questionsRepo = {
   // CRUD
   async getAll(): Promise<Question[]> {
@@ -370,12 +380,12 @@ export const questionsRepo = {
   },
 
   async put(question: Question): Promise<string> {
-    // Every edit bumps the version and stores the pre-edit snapshot.
-    const existing = await db.questions.get(question.id);
-    prepareVersionedUpdate(question, existing);
-    await db.questions.put(question);
-    emitQuestionUpdated(question);
-    return question.id;
+    return putQuestion(question);
+  },
+
+  /** Alias for put(): full replacement that keeps version history and emits an update. */
+  async update(question: Question): Promise<string> {
+    return putQuestion(question);
   },
 
   async delete(id: string, soft = true): Promise<void> {
@@ -428,6 +438,11 @@ export const questionsRepo = {
   // Query
   async getByTopic(topicCode: TopicCode): Promise<Question[]> {
     return (await db.questions.where('topicCode').equals(topicCode).toArray()).filter(isNotDeleted);
+  },
+
+  /** Questions at one difficulty level, excluding soft-deleted rows. */
+  async getByDifficulty(difficulty: Difficulty): Promise<Question[]> {
+    return (await db.questions.where('difficulty').equals(difficulty).toArray()).filter(isNotDeleted);
   },
 
   /** Batch fetch by ID, preserving the caller's order and dropping duplicates. */
