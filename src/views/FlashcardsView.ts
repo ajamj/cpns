@@ -124,6 +124,7 @@ export class FlashcardsView {
   private stats: FlashcardStats = EMPTY_STATS;
   private isRating = false;
   private disposed = false;
+  private eventsBound = false;
   private routeHandler: ((route: { view: string }) => void) | null = null;
 
   constructor(params: Record<string, string>) {
@@ -166,9 +167,10 @@ export class FlashcardsView {
       this.sm2Params = params;
       this.stats = stats;
       this.session = new FlashcardSession(cards, { params: this.sm2Params });
-      this.element.innerHTML = this.getShellHTML();
-      this.bindEvents();
-      this.syncCardFace();
+      // Keep the shell (and its delegated listeners) intact — only the data
+      // driven regions need refreshing when cards arrive from IndexedDB.
+      this.renderStats();
+      this.renderBody();
     } catch (error) {
       console.error('Failed to load flashcards session', error);
       if (!this.disposed && this.element) {
@@ -204,7 +206,7 @@ export class FlashcardsView {
       <div id="cardContainer">${this.getBodyHTML()}</div>
 
       <div class="flashcard-ratings" id="cardControls" role="group"
-           aria-label="${escapeHTML(t('flash.stats'))}" hidden>
+           aria-label="${escapeHTML(t('flash.rateCard'))}" hidden>
         <div class="flashcard-rating-buttons">${buttons}</div>
       </div>
 
@@ -314,28 +316,33 @@ export class FlashcardsView {
     `;
   }
 
+  /**
+   * All handlers are delegated from the persistent shell: the card body is
+   * replaced after every rating, so listeners bound to the old flipper would
+   * silently stop working on the next card.
+   */
   private bindEvents(): void {
     const root = this.element;
-    if (!root) return;
-
-    root.querySelector('#cardInner')?.addEventListener('click', () => this.toggleFlip());
-    root.querySelector<HTMLElement>('#cardInner')?.addEventListener('keydown', event => {
-      if (event.key === ' ' || event.key === 'Enter') {
-        event.preventDefault();
-        event.stopPropagation();
-        this.toggleFlip();
-      }
-    });
-
-    root.querySelector('#cardControls')?.addEventListener('click', event => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-quality]');
-      if (!button || button.disabled) return;
-      void this.rateCard(sm2RatingForButton(Number(button.dataset.quality)));
-    });
+    if (!root || this.eventsBound) return;
+    this.eventsBound = true;
 
     root.addEventListener('click', event => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
-      if (!button) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      if (target.closest('#cardInner')) {
+        // Embedded Markdown links should keep their own behaviour.
+        if (target.closest('a, button')) return;
+        this.toggleFlip();
+        return;
+      }
+
+      const button = target.closest<HTMLButtonElement>('button');
+      if (!button || button.disabled) return;
+      if (button.dataset.quality !== undefined) {
+        void this.rateCard(sm2RatingForButton(Number(button.dataset.quality)));
+        return;
+      }
       switch (button.id) {
         case 'btnRestart':
           void this.loadData();
@@ -391,9 +398,16 @@ export class FlashcardsView {
   }
 
   private renderBody(): void {
+    const hadFlipperFocus =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.closest('#cardInner') !== null;
     const container = this.element?.querySelector('#cardContainer');
     if (container) container.innerHTML = this.getBodyHTML();
     this.syncCardFace();
+    // Preserve keyboard flow: Space/Enter keeps flipping after moving on.
+    if (hadFlipperFocus) {
+      this.element?.querySelector<HTMLElement>('#cardInner')?.focus();
+    }
   }
 
   private renderStats(): void {
@@ -432,18 +446,34 @@ export class FlashcardsView {
   }
 
   private handleKeys = (event: KeyboardEvent): void => {
-    if (this.disposed || !this.session.currentCard || !this.element?.isConnected) return;
+    if (
+      this.disposed ||
+      !this.session.currentCard ||
+      !this.element?.isConnected ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) return;
+
     const target = event.target;
     if (target instanceof HTMLElement) {
-      if (target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
-      // The flipper handles its own Space/Enter activation.
-      if (target.closest('#cardInner')) return;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
     }
 
     if (event.key === ' ' || event.key === 'Enter') {
+      // Native activation wins on ordinary controls, but the card itself is
+      // a div with role="button", so it needs an explicit keyboard handler.
+      const onFlipper = target instanceof HTMLElement && target.closest('#cardInner') !== null;
+      const onControl = target instanceof HTMLElement && target.closest('button, a') !== null;
+      if (onControl && !onFlipper) return;
       event.preventDefault();
       this.toggleFlip();
-    } else if (/^[1-4]$/.test(event.key)) {
+      return;
+    }
+
+    // Digits rate even when a rating button still holds focus after the
+    // previous card — otherwise the shortcut silently stops working.
+    if (/^[1-4]$/.test(event.key)) {
       if (!this.session.showAnswer || this.isRating) return;
       event.preventDefault();
       void this.rateCard(sm2RatingForButton(Number(event.key) - 1));
