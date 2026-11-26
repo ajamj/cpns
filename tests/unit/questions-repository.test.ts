@@ -72,7 +72,7 @@ vi.mock('../../src/db/schema', () => {
   return { db: { questions } };
 });
 
-import { questionsRepo } from '../../src/db/repositories/questions';
+import { questionsRepo, TRASH_RETENTION_DAYS } from '../../src/db/repositories/questions';
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
   return {
@@ -372,9 +372,22 @@ describe('questionsRepo soft delete and trash (Task 7)', () => {
       makeQuestion({ id: 'active' }),
     ]);
 
-    expect(await questionsRepo.purgeOlderThan(30)).toBe(1);
+    expect(TRASH_RETENTION_DAYS).toBe(30);
+    expect(await questionsRepo.purgeOlderThan(TRASH_RETENTION_DAYS)).toBe(1);
     expect([...store.keys()].sort()).toEqual(['active', 'fresh']);
     expect(await questionsRepo.getTrashCount()).toBe(1);
+  });
+
+  it('purgeOlderThan() defaults to the shared retention window', async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    await seed([
+      makeQuestion({ id: 'old', deletedAt: new Date(now - (TRASH_RETENTION_DAYS + 1) * day).toISOString() }),
+      makeQuestion({ id: 'fresh', deletedAt: new Date(now - (TRASH_RETENTION_DAYS - 1) * day).toISOString() }),
+    ]);
+
+    expect(await questionsRepo.purgeOlderThan()).toBe(1);
+    expect([...store.keys()]).toEqual(['fresh']);
   });
 });
 

@@ -18,6 +18,9 @@ import { stemSimilarity, SMART_SIMILARITY_THRESHOLD, type MergeStrategy } from '
 const MAX_VERSION_SNAPSHOTS = 5;
 const MOCK_DIFFICULTIES: Difficulty[] = [1, 2, 3];
 
+/** Trash retention window in days, shared by the UI banner and app-load purge. */
+export const TRASH_RETENTION_DAYS = 30;
+
 /** Configuration accepted by the mock-exam question selector. */
 export interface MockExamSelectionConfig {
   questionCount: number;
@@ -533,7 +536,7 @@ export const questionsRepo = {
     emitQuestionDeleted(id);
   },
 
-  async purgeOlderThan(days: number): Promise<number> {
+  async purgeOlderThan(days: number = TRASH_RETENTION_DAYS): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     const cutoffISO = cutoff.toISOString();

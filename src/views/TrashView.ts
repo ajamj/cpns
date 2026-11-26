@@ -1,12 +1,12 @@
 // Trash View — soft-deleted questions with separate restore / purge bulk actions.
-import { questionsRepo } from '../db/repositories/questions';
+import { questionsRepo, TRASH_RETENTION_DAYS } from '../db/repositories/questions';
 import { t } from '../core/i18n';
 import { navigateToHash } from '../core/router';
 import { showToast } from '../core/app-utils';
 import type { Question } from '../shared/types';
 
-/** Retention window shared with the app-load auto-purge (Task 7). */
-export const TRASH_RETENTION_DAYS = 30;
+/** Re-exported for callers/tests; the value is owned by the repository. */
+export { TRASH_RETENTION_DAYS };
 const RETENTION_MS = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 /** Question stems come from imports/user input: never inject them as HTML. */
@@ -116,7 +116,7 @@ export class TrashView {
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-danger)" stroke-width="2" style="flex-shrink:0;margin-top:2px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <div>
               <strong style="color:var(--color-danger);">${escapeHTML(t('qb.autoPurge'))}</strong>
-              <div style="font-size:var(--text-sm);color:var(--color-text-muted);margin-top:var(--space-1);">${escapeHTML(t('qb.autoPurgeDone', { count: expiredCount }))}</div>
+              <div style="font-size:var(--text-sm);color:var(--color-text-muted);margin-top:var(--space-1);">${escapeHTML(t('qb.autoPurgeImminent', { count: expiredCount }))}</div>
             </div>
           </div>
         </div>

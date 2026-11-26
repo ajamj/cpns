@@ -107,8 +107,8 @@ async function importSeedQuestionsIfEmpty(): Promise<void> {
  */
 async function purgeExpiredTrash(): Promise<void> {
   try {
-    const { questionsRepo } = await import('@db/repositories/questions');
-    const purged = await questionsRepo.purgeOlderThan(30);
+    const { questionsRepo, TRASH_RETENTION_DAYS } = await import('@db/repositories/questions');
+    const purged = await questionsRepo.purgeOlderThan(TRASH_RETENTION_DAYS);
     if (purged > 0) {
       console.log(`Auto-purged ${purged} trashed questions older than 30 days`);
       showToast(t('qb.autoPurgeDone', { count: purged }), 'info');
@@ -122,6 +122,10 @@ async function purgeExpiredTrash(): Promise<void> {
 async function initApp(): Promise<void> {
   // Initialize locale
   initLocale();
+
+  // Register the real toast implementation before any startup work can emit
+  // one (notably the app-load trash purge below).
+  setShowToast(showToast);
 
   // Project the persisted WCAG preferences (font scale, reduced motion,
   // high contrast) onto <html> before the first view is rendered.
@@ -157,10 +161,6 @@ async function initApp(): Promise<void> {
   // Initialize router
   initRouter();
   
-  // Register the real toast implementation with the shared helper. The
-  // implementation below is DOM-only, so no i18n <-> app-utils cycle remains.
-  setShowToast(showToast);
-
   // Register the service worker and install update / storage policies.
   await initPwaLifecycle();
   
